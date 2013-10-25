@@ -1,0 +1,10 @@
+.project
+.classpath
+.settings
+*.iml
+target
+.idea
+*.ipr
+*~
+*.o
+*.so
