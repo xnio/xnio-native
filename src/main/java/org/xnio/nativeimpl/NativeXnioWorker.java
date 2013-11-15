@@ -34,6 +34,7 @@ import org.xnio.ChannelListener;
 import org.xnio.ChannelListeners;
 import org.xnio.ClosedWorkerException;
 import org.xnio.IoUtils;
+import org.xnio.LocalSocketAddress;
 import org.xnio.OptionMap;
 import org.xnio.Options;
 import org.xnio.StreamConnection;
@@ -157,6 +158,25 @@ final class NativeXnioWorker extends XnioWorker {
         try {
             Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress)));
             final TcpServer server = new TcpServer(this, fd, optionMap);
+            server.setAcceptListener(acceptListener);
+            Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128)));
+            ok = true;
+            return server;
+        } finally {
+            if (! ok) {
+                Native.close(fd);
+            }
+        }
+    }
+
+    protected AcceptingChannel<StreamConnection> createLocalStreamConnectionServer(final LocalSocketAddress bindAddress, final ChannelListener<? super AcceptingChannel<StreamConnection>> acceptListener, final OptionMap optionMap) throws IOException {
+        checkShutdown();
+        final int fd = Native.socketLocalStream();
+        Native.testAndThrow(fd);
+        boolean ok = false;
+        try {
+            Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress)));
+            final UnixServer server = new UnixServer(this, fd, optionMap);
             server.setAcceptListener(acceptListener);
             Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128)));
             ok = true;
