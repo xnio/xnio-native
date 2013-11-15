@@ -19,31 +19,44 @@
 package org.xnio.nativeimpl;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
-import org.jboss.logging.Logger;
-import org.xnio.OptionMap;
-import org.xnio.Version;
-import org.xnio.Xnio;
-import org.xnio.XnioWorker;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-final class NativeXnio extends Xnio {
+abstract class NativeDescriptor {
 
-    static {
-        Logger.getLogger("org.xnio.native").infof("XNIO Native Implementation Version %s", Version.VERSION);
+    final NativeWorkerThread thread;
+
+    final int fd;
+    int state;
+    int id;
+
+    protected NativeDescriptor(final NativeWorkerThread thread, final int fd) {
+        this.thread = thread;
+        this.fd = fd;
     }
 
-    public NativeXnio() {
-        super("native");
+    public NativeXnioWorker getWorker() {
+        return thread.getWorker();
     }
 
-    public XnioWorker createWorker(final ThreadGroup threadGroup, final OptionMap optionMap, final Runnable terminationTask) throws IOException, IllegalArgumentException {
-        return new NativeXnioWorker(this, threadGroup, optionMap, terminationTask);
+    void setId(int id) {
+        this.id = id;
     }
 
-    protected FileChannel unwrapFileChannel(final FileChannel src) {
-        return super.unwrapFileChannel(src);
+    void unregister() {
+        thread.unregister(this);
     }
+
+    void preClose() throws IOException {
+        Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
+    }
+
+    void close() throws IOException {
+        Native.testAndThrow(Native.close(fd));
+    }
+
+    protected abstract void handleReadReady();
+
+    protected abstract void handleWriteReady();
 }

@@ -1,7 +1,7 @@
 /*
  * JBoss, Home of Professional Open Source
  *
- * Copyright 2012 Red Hat, Inc. and/or its affiliates.
+ * Copyright 2013 Red Hat, Inc. and/or its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +18,29 @@
 
 package org.xnio.nativeimpl;
 
-import java.io.IOException;
+
+import org.xnio.AutomaticReference;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-final class UnixSocketChannel extends StreamSocketChannel<UnixSocketChannel> {
+final class FdRef<T extends NativeDescriptor> extends AutomaticReference<T> {
 
-    UnixSocketChannel(final NativeXnioWorker worker, final int fd, final NativeWorkerThread readThread, final NativeWorkerThread writeThread) throws IOException {
-        super(worker, fd, readThread, writeThread, null);
+    private static final Object PERMIT = AutomaticReference.getPermit();
+
+    final int fd;
+
+    FdRef(final T referent, final int fd) {
+        super(referent, PERMIT);
+        this.fd = fd;
+    }
+
+    protected void free() {
+        Log.log.tracef("Freeing %s", this);
+        Native.close(fd);
+    }
+
+    public String toString() {
+        return "file descriptor " + fd;
     }
 }

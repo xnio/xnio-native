@@ -20,30 +20,36 @@ package org.xnio.nativeimpl;
 
 import java.io.IOError;
 import java.io.IOException;
-import java.util.Queue;
-import org.jboss.logging.Logger;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
-import static org.xnio.nativeimpl.Native.*;
+import static org.xnio.Bits.*;
+import static org.xnio.nativeimpl.Log.epollLog;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
 final class EPollWorkerThread extends NativeWorkerThread {
 
-    private static final Logger log = Logger.getLogger("org.xnio.native.epoll");
-
+    // EPoll FD
     private final int epfd;
+    // event FD for waking up epoll
     private final int evfd;
-    private final int[] fds = new int[512];
+    // select this many at a time; low 32 bits is ID, high 32 bits is flags
+    private final long[] events = new long[128];
+    // map of epoll IDs to files
+    private final EPollMap epollMap = new EPollMap();
+    // epoll ID counter; 0 is reserved for the epoll event FD
+    private int epollId = 1;
 
-    EPollWorkerThread(final NativeXnioWorker worker, final String name, final ThreadGroup group, final long stackSize, final boolean writeThread) throws IOException {
-        super(worker, name, group, stackSize, writeThread);
+    EPollWorkerThread(final NativeXnioWorker worker, final int threadNumber, final String name, final ThreadGroup group, final long stackSize) throws IOException {
+        super(worker, threadNumber, name, group, stackSize);
         boolean ok = false;
         epfd = Native.testAndThrow(Native.epollCreate());
         try {
             evfd = Native.testAndThrow(Native.eventFD());
             try {
-                Native.testAndThrow(Native.epollCtlAdd(epfd, evfd, true, false, false));
+                Native.testAndThrow(Native.epollCtlAdd(epfd, evfd, Native.EPOLL_FLAG_READ | Native.EPOLL_FLAG_EDGE, 0));
                 ok = true;
             } finally {
                 if (! ok) {
@@ -58,68 +64,152 @@ final class EPollWorkerThread extends NativeWorkerThread {
     }
 
     void close() {
-        log.tracef("Closing %s", this);
+        assert this == currentThread();
+        epollLog.tracef("Closing %s", this);
         Native.close(evfd);
         Native.close(epfd);
     }
 
     void doWakeup() {
-        log.tracef("Waking up %s", this);
+        assert this == currentThread();
+        epollLog.tracef("Waking up %s", this);
         Native.writeLong(evfd, 1L);
     }
 
-    void doGetEvents(final Queue<NativeRawChannel<?>> readyQueue, final long delayTimeMillis) {
-        final int[] fds = this.fds;
+    void doSelection(final long delayTimeMillis) {
+        assert this == currentThread();
+        final long[] events = this.events;
         final int epfd = this.epfd;
         final int evfd = this.evfd;
         int cnt;
         try {
             int res;
             do {
-                res = Native.epollWait(epfd, fds, (int) Math.min((long) Integer.MAX_VALUE, delayTimeMillis));
-            } while (res == -EINTR);
+                res = Native.epollWait(epfd, events, (int) Math.min((long) Integer.MAX_VALUE, delayTimeMillis));
+            } while (res == -Native.EINTR);
             cnt = Native.testAndThrow(res);
         } catch (IOException e) {
-            log.trace("Problem reading epoll", e);
+            epollLog.trace("Problem reading epoll", e);
             throw new IOError(e);
         }
-        int fd;
-        NativeRawChannel<?> channel;
+        long event;
+        int id;
+        NativeDescriptor channel;
+        EPollRegistration reg;
         while (cnt > 0) {
             for (int i = 0; i < cnt; i ++) {
-                fd = fds[i];
-                if (fd == evfd) {
+                event = events[i];
+                id = (int) (event >> 32L);
+                if (id == 0) {
                     // wakeup
-                    log.tracef("Consuming wakeup on %s", this);
-                    Native.readLong(fd);
+                    epollLog.tracef("Consuming wakeup on %s", this);
+                    Native.readLong(evfd);
                 } else {
-                    channel = channelFor(fd);
-                    if (channel != null) {
-                        log.tracef("Channel %s is ready", channel);
-                        readyQueue.add(channel);
+                    reg = epollMap.get(id);
+                    if (reg != null) {
+                        channel = reg.channel;
+                        if (channel != null) {
+                            epollLog.tracef("Channel %s is ready", channel);
+                            if (allAreSet(event, Native.EPOLL_FLAG_WRITE)) {
+                                channel.handleWriteReady();
+                            }
+                            if (allAreSet(event, Native.EPOLL_FLAG_READ)) {
+                                channel.handleReadReady();
+                            }
+                        }
+                    } else {
+                        epollLog.tracef("Ghost epoll for ID %d; ignoring but may cause a spin", id);
                     }
                 }
                 try {
-                    cnt = Native.testAndThrow(Native.epollWait(epfd, fds, 0));
+                    cnt = Native.testAndThrow(Native.epollWait(epfd, events, 0));
                 } catch (IOException e) {
-                    log.trace("Problem reading epoll", e);
+                    epollLog.trace("Problem reading epoll", e);
                     throw new IOError(e);
                 }
             }
         }
     }
 
-    void doRegister(final NativeRawChannel<?> channel) throws IOException {
-        log.tracef("Registering %s", channel);
-        Native.testAndThrow(Native.epollCtlAdd(epfd, channel.fd, false, false, true));
+    public Key executeAfter(final Runnable command, final long time, final TimeUnit unit) {
+        final int seconds = (int) Math.min(unit.toSeconds(time), (long)Integer.MAX_VALUE);
+        final int nanos = (int) (unit.toNanos(time) % 1000000000L);
+        final int fd = Native.createTimer(seconds, nanos);
+        if (fd < 0) {
+            throw new RejectedExecutionException("Not enough resources to create timer");
+        }
+        boolean ok = false;
+        try {
+            final NativeTimer timer = new NativeTimer(this, fd, command);
+            try {
+                if (this == currentThread()) {
+                    register(timer);
+                    doResume(fd, true, false);
+                } else {
+                    execute(new Runnable() {
+                        public void run() {
+                            try {
+                                register(timer);
+                                doResume(fd, true, false);
+                            } catch (IOException e) {
+                                // this is a problem... punt!
+                                timer.handleReadReady();
+                            }
+                        }
+                    });
+                }
+                ok = true;
+                return timer;
+            } catch (IOException e) {
+                throw new RejectedExecutionException("Not enough resources to create timer");
+            }
+        } finally {
+            if (! ok) {
+                Native.close(fd);
+            }
+        }
+    }
+
+    void register(final NativeDescriptor channel) throws IOException {
+        int id;
+        boolean ok = false;
+        EPollRegistration registration = null;
+        try {
+            synchronized (epollMap) {
+                epollLog.tracef("Registering %s", channel);
+                while ((id = epollId++) == 0 || epollMap.containsKey(id));
+                registration = new EPollRegistration(id, channel);
+                channel.setId(id);
+                epollMap.add(registration);
+            }
+            Native.testAndThrow(Native.epollCtlAdd(epfd, channel.fd, 0, id));
+            ok = true;
+        } finally {
+            if (! ok) synchronized (epollMap) {
+                epollMap.remove(registration);
+            }
+        }
+        if (currentThread() != this) {
+            doWakeup();
+        }
     }
 
     void doResume(final int fd, final boolean read, final boolean write) {
-        log.tracef("Resuming read=%s write=%s on %d", read, write, fd);
+        assert this == currentThread();
+        epollLog.tracef("Resuming read=%s write=%s on %d", read, write, fd);
         try {
-            Native.testAndThrow(Native.epollCtlMod(epfd, fd, read, write, true));
+            Native.testAndThrow(Native.epollCtlMod(epfd, fd, (read ? Native.EPOLL_FLAG_READ : 0) | (write ? Native.EPOLL_FLAG_WRITE : 0) | Native.EPOLL_FLAG_EDGE));
         } catch (IOException e) {
-            log.warnf(e, "Resume failed on FD %d (%s, %s)", fd, read, write);
+            epollLog.warnf(e, "Resume failed on FD %d (%s, %s)", fd, read, write);
+        }
+    }
+
+    void unregister(final NativeDescriptor channel) {
+        synchronized (epollMap) {
+            final EPollRegistration registration = epollMap.removeKey(channel.id);
+            assert registration.channel == channel; // if not, we got a problem
+            Native.epollCtlDel(epfd, channel.fd);
+            // no need to wake up; worst outcome is a false positive which is no different
         }
     }
 }

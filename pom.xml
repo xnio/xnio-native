@@ -33,7 +33,7 @@
     </parent>
 
     <properties>
-        <version.org.xnio>3.1.0.Beta7</version.org.xnio>
+        <version.org.xnio>3.2.0.Beta4-SNAPSHOT</version.org.xnio>
         <version.org.jboss.logging>3.1.2.GA</version.org.jboss.logging>
         <version.org.jboss.logging.processor>1.2.0.Beta1</version.org.jboss.logging.processor>
     </properties>

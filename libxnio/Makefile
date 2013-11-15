@@ -11,6 +11,8 @@ ALL_OFILES=$(LINUX_x86_64_OFILES) $(LINUX_x32_OFILES) $(LINUX_i686_OFILES)
 
 ALL_TARGETS=linux-x86_64/libxnio.so linux-i686/libxnio.so linux-x32/libxnio.so
 
+STRIP=strip
+
 default: linux
 
 linux: linux-x86_64/libxnio.so linux-i686/libxnio.so

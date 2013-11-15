@@ -1,7 +1,7 @@
 /*
  * JBoss, Home of Professional Open Source
  *
- * Copyright 2012 Red Hat, Inc. and/or its affiliates.
+ * Copyright 2013 Red Hat, Inc. and/or its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,34 +18,15 @@
 
 package org.xnio.nativeimpl;
 
-import java.io.IOError;
-import java.io.IOException;
-
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-final class ThreadFd {
-    final int fd;
+final class EPollRegistration {
+    final int id;
+    final NativeDescriptor channel;
 
-    private ThreadFd() throws IOException {
-        fd = Native.testAndThrow(Native.eventFD());
-    }
-
-    private static final ThreadLocal<ThreadFd> HOLDER = new ThreadLocal<ThreadFd>() {
-        protected ThreadFd initialValue() {
-            try {
-                return new ThreadFd();
-            } catch (IOException e) {
-                throw new IOError(e);
-            }
-        }
-    };
-
-    static ThreadFd get() {
-        return HOLDER.get();
-    }
-
-    protected void finalize() throws Throwable {
-        Native.close(fd);
+    EPollRegistration(final int id, final NativeDescriptor channel) {
+        this.id = id;
+        this.channel = channel;
     }
 }

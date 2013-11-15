@@ -45,50 +45,78 @@ JNIEXPORT jint JNICALL xnio_native(epollCreate)(JNIEnv *env, jclass clazz) {
     return fd;
 }
 
-JNIEXPORT jint JNICALL xnio_native(epollWait)(JNIEnv *env, jclass clazz, jint efd, jintArray fds, jint timeout) {
-    int count = (*env)->GetArrayLength(env, fds);
+JNIEXPORT jint JNICALL xnio_native(epollWait)(JNIEnv *env, jclass clazz, jint efd, jlongArray eventArray, jint timeout) {
+    int count = (*env)->GetArrayLength(env, eventArray);
     struct epoll_event events[count];
-    if (epoll_wait) {
-        int res = epoll_wait(efd, events, count, (int) timeout);
-        if (res < 0) {
-            return -errno;
-        }
-        jint *fdsItems = (*env)->GetIntArrayElements(env, fds, 0);
-        if (! fdsItems) {
-            return -ENOMEM;
-        }
-        for (int i = 0; i < res; i ++) {
-            fdsItems[i] = events[i].data.fd;
-        }
-        (*env)->ReleaseIntArrayElements(env, fds, fdsItems, JNI_COMMIT);
-        return res;
-    } else {
-        return -EINVAL;
+    int res = epoll_wait(efd, events, count, (int) timeout);
+    if (res < 0) {
+        return -errno;
     }
-}
-
-static jint do_epoll_ctl(jint efd, jint fd, int op, uint32_t events) {
-    if (epoll_ctl) {
-        struct epoll_event event = { .events = events, .data.fd = fd };
-        if (epoll_ctl(efd, op, fd, &event) < 0) {
-            return -errno;
-        }
-        return 0;
-    } else {
-        return -EINVAL;
+    jlong *items = (*env)->GetLongArrayElements(env, eventArray, 0);
+    if (! items) {
+        return -ENOMEM;
     }
+    for (int i = 0; i < res; i ++) {
+        items[i] = events[i].data.u64;
+        if (events[i].events & (EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP)) {
+            items[i] |= XNIO_EPOLL_READ;
+        }
+        if (events[i].events & (EPOLLOUT | EPOLLERR | EPOLLHUP)) {
+            items[i] |= XNIO_EPOLL_WRITE;
+        }
+    }
+    (*env)->ReleaseLongArrayElements(env, eventArray, items, 0);
+    return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(epollCtlAdd)(JNIEnv *env, jclass clazz, jint efd, jint fd, jboolean read, jboolean write, jboolean edge) {
-    return do_epoll_ctl(efd, fd, EPOLL_CTL_ADD, (read ? EPOLLIN : 0) | (write ? EPOLLOUT | EPOLLRDHUP : 0) | (edge ? EPOLLET : 0));
+JNIEXPORT jint JNICALL xnio_native(epollCtlAdd)(JNIEnv *env, jclass clazz, jint efd, jint fd, jint flags, jint id) {
+    uint32_t events = 0;
+    if (flags & XNIO_EPOLL_READ) {
+        events |= EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+    }
+    if (flags & XNIO_EPOLL_WRITE) {
+        events |= EPOLLOUT | EPOLLERR | EPOLLHUP;
+    }
+    if (flags & XNIO_EPOLL_EDGE) {
+        events |= EPOLLET;
+    }
+    struct epoll_event event = {
+        .events = events,
+        .data.u64 = (((uint64_t) id) << 32L)
+    };
+    if (epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event) < 0) {
+        return -errno;
+    }
+    return 0;
 }
 
-JNIEXPORT jint JNICALL xnio_native(epollCtlMod)(JNIEnv *env, jclass clazz, jint efd, jint fd, jboolean read, jboolean write, jboolean edge) {
-    return do_epoll_ctl(efd, fd, EPOLL_CTL_MOD, (read ? EPOLLIN : 0) | (write ? EPOLLOUT | EPOLLRDHUP : 0) | (edge ? EPOLLET : 0));
+JNIEXPORT jint JNICALL xnio_native(epollCtlMod)(JNIEnv *env, jclass clazz, jint efd, jint fd, jint flags, jint id) {
+    uint32_t events = 0;
+    if (flags & XNIO_EPOLL_READ) {
+        events |= EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
+    }
+    if (flags & XNIO_EPOLL_WRITE) {
+        events |= EPOLLOUT | EPOLLERR | EPOLLHUP;
+    }
+    if (flags & XNIO_EPOLL_EDGE) {
+        events |= EPOLLET;
+    }
+    struct epoll_event event = {
+        .events = events,
+        .data.u64 = (((uint64_t) id) << 32L)
+    };
+    if (epoll_ctl(efd, EPOLL_CTL_MOD, fd, &event) < 0) {
+        return -errno;
+    }
+    return 0;
 }
 
 JNIEXPORT jint JNICALL xnio_native(epollCtlDel)(JNIEnv *env, jclass clazz, jint efd, jint fd) {
-    return do_epoll_ctl(efd, fd, EPOLL_CTL_DEL, 0);
+    struct epoll_event event = { 0 };
+    if (epoll_ctl(efd, EPOLL_CTL_DEL, fd, &event) < 0) {
+        return -errno;
+    }
+    return 0;
 }
 
 #endif /* __linux__ */

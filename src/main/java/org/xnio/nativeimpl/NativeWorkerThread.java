@@ -19,156 +19,288 @@
 package org.xnio.nativeimpl;
 
 import java.io.IOException;
-import java.nio.channels.ClosedChannelException;
-import java.util.ArrayDeque;
-import java.util.Iterator;
-import java.util.Queue;
-import java.util.SortedSet;
-import java.util.TreeSet;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
-import org.jboss.logging.Logger;
-import org.xnio.XnioExecutor;
 
-import static java.lang.System.nanoTime;
-import static org.xnio.Bits.*;
+import org.xnio.Cancellable;
+import org.xnio.ChannelListener;
+import org.xnio.ChannelListeners;
+import org.xnio.ChannelPipe;
+import org.xnio.ClosedWorkerException;
+import org.xnio.FailedIoFuture;
+import org.xnio.FinishedIoFuture;
+import org.xnio.FutureResult;
+import org.xnio.IoFuture;
+import org.xnio.LocalSocketAddress;
+import org.xnio.OptionMap;
+import org.xnio.StreamConnection;
+import org.xnio.XnioExecutor;
+import org.xnio.XnioIoFactory;
+import org.xnio.XnioIoThread;
+import org.xnio.channels.BoundChannel;
+import org.xnio.channels.StreamSinkChannel;
+import org.xnio.channels.StreamSourceChannel;
+import org.xnio.conduits.WriteReadyHandler;
+
+import static org.xnio.nativeimpl.Log.log;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-abstract class NativeWorkerThread extends Thread implements XnioExecutor {
+abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
 
     private static final long LONGEST_DELAY = 9223372036853L;
 
-    private static final Logger log = Logger.getLogger("org.xnio.native");
+    private volatile int state;
 
-    private final NativeXnioWorker worker;
+    private static final int SHUTDOWN = (1 << 31);
 
-    private volatile int state = 1;
-
-    private static final int CLOSE_REQ_FLAG = 1 << 31;
-    private static final int CLOSED_FLAG = 1 << 30;
-    private static final int RESOURCE_MASK = intBitMask(0, 29);
+    private static final AtomicIntegerFieldUpdater<NativeWorkerThread> stateUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeWorkerThread.class, "state");
 
     private final Object lock = new Object();
 
-    private final Queue<Runnable> workQueue = new ArrayDeque<Runnable>();
-    private final SortedSet<TimeKey> delayQueue = new TreeSet<TimeKey>();
+    private final ConcurrentLinkedQueue<Runnable> queue = new ConcurrentLinkedQueue<>();
 
-    private final FdMap channelMap = new FdMap();
-
-    private static final AtomicIntegerFieldUpdater<NativeWorkerThread> stateUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeWorkerThread.class, "state");
-    private final boolean writeThread;
-
-    NativeWorkerThread(final NativeXnioWorker worker, final String name, final ThreadGroup group, final long stackSize, final boolean writeThread) {
-        super(group, null, name, stackSize);
-        this.worker = worker;
-        this.writeThread = writeThread;
+    NativeWorkerThread(final NativeXnioWorker worker, final int threadNumber, final String name, final ThreadGroup group, final long stackSize) {
+        super(worker, threadNumber, group, name, stackSize);
     }
 
-    private boolean tryEnter() {
-        int oldState;
-        do {
-            oldState = state;
-            if (allAreSet(oldState, CLOSE_REQ_FLAG)) {
-                return false;
-            }
-        } while (! stateUpdater.compareAndSet(this, oldState, oldState + 1));
-        return true;
+    static NativeWorkerThread getCurrent() {
+        final Thread thread = currentThread();
+        return thread instanceof NativeWorkerThread ? (NativeWorkerThread) thread : null;
     }
 
-    private boolean tryTerminate() {
-        int oldState;
-        do {
-            oldState = state;
-            if (anyAreSet(oldState, RESOURCE_MASK) || allAreClear(oldState, CLOSE_REQ_FLAG)) {
-                return false;
-            }
-        } while (! stateUpdater.compareAndSet(this, oldState, CLOSED_FLAG | CLOSE_REQ_FLAG));
-        return true;
+    public NativeXnioWorker getWorker() {
+        return (NativeXnioWorker) super.getWorker();
     }
 
-    final void exit() {
-        if (stateUpdater.decrementAndGet(this) == (CLOSED_FLAG | CLOSE_REQ_FLAG)) {
-            close();
+    protected IoFuture<StreamConnection> acceptTcpStreamConnection(final InetSocketAddress destination, final ChannelListener<? super StreamConnection> openListener, final ChannelListener<? super BoundChannel> bindListener, final OptionMap optionMap) {
+        return acceptGeneralStreamConnection(destination, openListener, bindListener, optionMap);
+    }
+
+    protected IoFuture<StreamConnection> acceptLocalStreamConnection(final LocalSocketAddress destination, final ChannelListener<? super StreamConnection> openListener, final ChannelListener<? super BoundChannel> bindListener, final OptionMap optionMap) {
+        return acceptGeneralStreamConnection(destination, openListener, bindListener, optionMap);
+    }
+
+    protected IoFuture<StreamConnection> acceptGeneralStreamConnection(final SocketAddress destination, final ChannelListener<? super StreamConnection> openListener, final ChannelListener<? super BoundChannel> bindListener, final OptionMap optionMap) {
+        assert destination instanceof InetSocketAddress || destination instanceof LocalSocketAddress;
+        try {
+            getWorker().checkShutdown();
+        } catch (ClosedWorkerException e) {
+            return new FailedIoFuture<StreamConnection>(e);
         }
+        final FutureResult<StreamConnection> futureResult = new FutureResult<StreamConnection>(this);
+        try {
+            boolean ok = false;
+            final int fd = streamSocket(destination);
+            try {
+                Native.listen(fd, 1);
+                final NativeDescriptor listener = new NativeDescriptor(this, fd) {
+                    protected void handleReadReady() {
+                        final int nfd = Native.accept(fd);
+                        if (nfd == -Native.EAGAIN) {
+                            return;
+                        }
+                        if (nfd < 0) {
+                            if (futureResult.setException(Native.exceptionFor(nfd))) {
+                                unregister();
+                                Native.close(fd);
+                            }
+                        } else {
+                            final NativeStreamConnection connection = destination instanceof LocalSocketAddress ? new UnixConnection(NativeWorkerThread.this, nfd) : new TcpConnection(NativeWorkerThread.this, nfd);
+                            final NativeStreamConduit conduit = connection.getConduit();
+                            try {
+                                register(conduit);
+                            } catch (IOException e) {
+                                if (futureResult.setException(e)) {
+                                    unregister();
+                                    Native.close(fd);
+                                }
+                                return;
+                            }
+                            if (futureResult.setResult(connection)) {
+                                unregister();
+                                Native.close(fd);
+                                ChannelListeners.invokeChannelListener(connection, openListener);
+                            }
+                        }
+                    }
+
+                    protected void handleWriteReady() {
+                    }
+                };
+                register(listener);
+                try {
+                    doResume(fd, true, false);
+                    ok = true;
+                } finally {
+                    if (! ok) {
+                        unregister(listener);
+                    }
+                }
+            } finally {
+                if (! ok) {
+                    Native.close(fd);
+                }
+            }
+        } catch (IOException e) {
+            return new FailedIoFuture<>(e);
+        }
+        return futureResult.getIoFuture();
+    }
+
+    protected IoFuture<StreamConnection> openTcpStreamConnection(final InetSocketAddress bindAddress, final InetSocketAddress destinationAddress, final ChannelListener<? super StreamConnection> openListener, final ChannelListener<? super BoundChannel> bindListener, final OptionMap optionMap) {
+        return openGeneralStreamConnection(bindAddress, destinationAddress, openListener, bindListener, optionMap);
+    }
+
+    protected IoFuture<StreamConnection> openLocalStreamConnection(final LocalSocketAddress bindAddress, final LocalSocketAddress destinationAddress, final ChannelListener<? super StreamConnection> openListener, final ChannelListener<? super BoundChannel> bindListener, final OptionMap optionMap) {
+        return openGeneralStreamConnection(bindAddress, destinationAddress, openListener, bindListener, optionMap);
+    }
+
+    protected IoFuture<StreamConnection> openGeneralStreamConnection(final SocketAddress bindAddress, final SocketAddress destinationAddress, final ChannelListener<? super StreamConnection> openListener, final ChannelListener<? super BoundChannel> bindListener, final OptionMap optionMap) {
+        assert bindAddress instanceof InetSocketAddress && destinationAddress instanceof InetSocketAddress || bindAddress instanceof LocalSocketAddress && destinationAddress instanceof LocalSocketAddress || bindAddress == null && (destinationAddress instanceof LocalSocketAddress || destinationAddress instanceof InetSocketAddress);
+        try {
+            getWorker().checkShutdown();
+        } catch (ClosedWorkerException e) {
+            return new FailedIoFuture<StreamConnection>(e);
+        }
+        boolean ok = false;
+        try {
+            final int fd = streamSocket(bindAddress);
+            try {
+                final NativeStreamConnection connection = destinationAddress instanceof LocalSocketAddress ? new UnixConnection(this, fd) : new TcpConnection(this, fd);
+                final NativeStreamConduit conduit = connection.getConduit();
+                register(conduit);
+                if (Native.testAndThrowNB(Native.connect(fd, Native.encodeSocketAddress(destinationAddress))) == 0) {
+                    // would block
+                    final FutureResult<StreamConnection> futureResult = new FutureResult<StreamConnection>(this);
+                    conduit.setWriteReadyHandler(new WriteReadyHandler() {
+                        public void writeReady() {
+                            int res = Native.finishConnect(fd);
+                            if (res == -Native.EAGAIN) {
+                                // try again
+                                return;
+                            }
+                            if (res == 0) {
+                                // connect finished
+                                conduit.suspendWrites();
+                                if (futureResult.setResult(connection)) {
+                                    ChannelListeners.invokeChannelListener(connection, openListener);
+                                }
+                                return;
+                            }
+                            futureResult.setException(Native.exceptionFor(res));
+                            unregister(connection.conduit);
+                            Native.close(fd);
+                        }
+
+                        public void forceTermination() {
+                        }
+
+                        public void terminated() {
+                        }
+                    });
+                    conduit.resumeWrites();
+                    ok = true;
+                    futureResult.addCancelHandler(new Cancellable() {
+                        public Cancellable cancel() {
+                            if (futureResult.setCancelled()) {
+                                unregister(conduit);
+                            }
+                            return this;
+                        }
+                    });
+                    return futureResult.getIoFuture();
+                } else {
+                    // connected
+                    return new FinishedIoFuture<StreamConnection>(connection);
+                }
+            } finally {
+                if (! ok) {
+                    Native.close(fd);
+                }
+            }
+        } catch (IOException e) {
+            return new FailedIoFuture<StreamConnection>(e);
+        }
+    }
+
+    private int streamSocket(final SocketAddress bindAddress) throws IOException {
+        if (bindAddress instanceof LocalSocketAddress) {
+            return Native.testAndThrow(Native.socketLocalStream());
+        } else if (bindAddress instanceof InetSocketAddress) {
+            final InetAddress address = ((InetSocketAddress) bindAddress).getAddress();
+            if (address instanceof Inet4Address) {
+                return Native.testAndThrow(Native.socketTcp());
+            } else if (address instanceof Inet6Address) {
+                return Native.testAndThrow(Native.socketTcp6());
+            }
+        }
+        throw new IOException("Invalid socket type");
+    }
+
+    NativeWorkerThread getNextThread() {
+        final NativeWorkerThread[] all = getWorker().getAll();
+        final int number = getNumber();
+        if (number == all.length - 1) {
+            return all[0];
+        } else {
+            return all[number + 1];
+        }
+    }
+
+    public ChannelPipe<StreamConnection, StreamConnection> createFullDuplexPipeConnection() throws IOException {
+        return super.createFullDuplexPipeConnection();
+    }
+
+    public ChannelPipe<StreamConnection, StreamConnection> createFullDuplexPipeConnection(final XnioIoFactory peer) throws IOException {
+        return super.createFullDuplexPipeConnection(peer);
+    }
+
+    public ChannelPipe<StreamSourceChannel, StreamSinkChannel> createHalfDuplexPipe(final XnioIoFactory peer) throws IOException {
+        return super.createHalfDuplexPipe(peer);
     }
 
     abstract void close();
 
     abstract void doWakeup();
 
-    abstract void doGetEvents(Queue<NativeRawChannel<?>> readyQueue, long delayTimeMillis);
-
-    final NativeRawChannel<?> channelFor(int fd) {
-        return channelMap.get(fd);
-    }
+    abstract void doSelection(long delayTimeMillis);
 
     public final void interrupt() {
-        wakeup();
+        doWakeup();
         super.interrupt();
-    }
-
-    final void wakeup() {
-        if (tryEnter()) try {
-            doWakeup();
-        } finally {
-            exit();
-        }
     }
 
     public final void run() {
         try {
             log.tracef("Starting worker thread %s", this);
             Runnable task;
-            Iterator<TimeKey> iterator;
-            final Queue<NativeRawChannel<?>> readyQueue = new ArrayDeque<NativeRawChannel<?>>();
-            long delayTime = Long.MAX_VALUE;
+            int oldState;
             for (;;) {
                 // run tasks first
                 do {
-                    synchronized (lock) {
-                        task = workQueue.poll();
-                        if (task == null) {
-                            iterator = delayQueue.iterator();
-                            delayTime = Long.MAX_VALUE;
-                            if (iterator.hasNext()) {
-                                final long now = nanoTime();
-                                do {
-                                    final TimeKey key = iterator.next();
-                                    if (key.deadline <= now) {
-                                        workQueue.add(key.command);
-                                        iterator.remove();
-                                    } else {
-                                        delayTime = key.deadline - now;
-                                        // the rest are in the future
-                                        break;
-                                    }
-                                } while (iterator.hasNext());
-                            }
-                            task = workQueue.poll();
-                        }
-                    }
+                    task = queue.poll();
                     safeRun(task);
                 } while (task != null);
-
-                // check for shutdown
-                if (tryTerminate()) {
+                // all tasks have been run
+                oldState = state;
+                if ((oldState & SHUTDOWN) != 0) {
+                    close();
                     return;
                 }
 
-                // execute selection
-                doGetEvents(readyQueue, 1L + delayTime / 10000000L);
-                NativeRawChannel<?> channel;
-                while ((channel = readyQueue.poll()) != null) {
-                    channel.notifyReady(this);
-                }
+                // perform select
+                doSelection(LONGEST_DELAY);
             }
         } finally {
-            worker.closeResource();
+            getWorker().closeResource();
             log.tracef("Shutting down channel thread \"%s\"", this);
-            exit();
         }
     }
 
@@ -177,121 +309,33 @@ abstract class NativeWorkerThread extends Thread implements XnioExecutor {
             log.tracef("Running task %s", command);
             command.run();
         } catch (Throwable t) {
-            log.error("Task failed on channel thread", t);
+            log.taskFailed(command, t);
         }
     }
 
     public void execute(final Runnable command) {
-        if (! tryEnter()) {
-            throw new RejectedExecutionException("Thread is terminating");
+        if ((state & SHUTDOWN) != 0) {
+            throw log.threadExiting();
         }
-        try {
-            synchronized (lock) {
-                workQueue.add(command);
-            }
-            if (this != Thread.currentThread()) wakeup();
-        } finally {
-            exit();
-        }
-    }
-
-    public XnioExecutor.Key executeAfter(final Runnable command, final long time, final TimeUnit unit) {
-        return executeAfter(command, unit.toMillis(time));
-    }
-
-    XnioExecutor.Key executeAfter(final Runnable command, final long time) {
-        if (! tryEnter()) {
-            throw new RejectedExecutionException("Thread is terminating");
-        }
-        try {
-            if (time <= 0) {
-                execute(command);
-                return XnioExecutor.Key.IMMEDIATE;
-            }
-            final long deadline = nanoTime() + Math.min(time, LONGEST_DELAY) * 1000000L;
-            final TimeKey key = new TimeKey(deadline, command);
-            synchronized (lock) {
-                final SortedSet<TimeKey> queue = delayQueue;
-                queue.add(key);
-                if (this != Thread.currentThread()) {
-                    if (queue.iterator().next() == key) {
-                        // we're the next one up; poke the selector to update its delay time
-                        wakeup();
-                    }
-                }
-                return key;
-            }
-        } finally {
-            exit();
-        }
-    }
-
-    abstract void doRegister(NativeRawChannel<?> channel) throws IOException;
-
-    final void register(NativeRawChannel<?> channel) throws IOException {
-        if (tryEnter()) try {
-            log.tracef("Adding channel %s to %s", channel, this);
-            if (channelMap.put(channel) == null) {
-                doRegister(channel);
-            }
-        } finally {
-            exit();
-        } else {
-            throw new ClosedChannelException();
-        }
-    }
-
-    abstract void doResume(int fd, boolean read, boolean write);
-
-    final void resumeFd(final int fd, final boolean read, final boolean write) {
-        if (tryEnter()) try {
-            log.tracef("Modifying set for %d read=%s write=%s", Integer.valueOf(fd), Boolean.valueOf(read), Boolean.valueOf(write));
-            doResume(fd, read, write);
-        } finally {
-            exit();
-        }
+        queue.add(command);
+        if (this != Thread.currentThread()) doWakeup();
     }
 
     final void shutdown() {
         int oldState;
         do {
             oldState = state;
-            if (allAreSet(oldState, CLOSE_REQ_FLAG)) {
+            if ((oldState & SHUTDOWN) != 0) {
+                // idempotent
                 return;
             }
-        } while (! stateUpdater.compareAndSet(this, oldState, 1 + (oldState | CLOSE_REQ_FLAG)));
-        try {
-            doWakeup();
-        } finally {
-            exit();
-        }
+        } while (! stateUpdater.compareAndSet(this, oldState, oldState | SHUTDOWN));
+        doWakeup();
     }
 
-    final void unregister(final NativeRawChannel<?> channel) {
-        channelMap.remove(channel);
-    }
+    abstract void register(NativeDescriptor channel) throws IOException;
 
-    boolean isWriteThread() {
-        return writeThread;
-    }
+    abstract void doResume(int fd, boolean read, boolean write);
 
-    final class TimeKey implements XnioExecutor.Key, Comparable<TimeKey> {
-        private final long deadline;
-        private final Runnable command;
-
-        TimeKey(final long deadline, final Runnable command) {
-            this.deadline = deadline;
-            this.command = command;
-        }
-
-        public boolean remove() {
-            synchronized (lock) {
-                return delayQueue.remove(this);
-            }
-        }
-
-        public int compareTo(final TimeKey o) {
-            return (int) Math.signum(deadline - o.deadline);
-        }
-    }
+    abstract void unregister(final NativeDescriptor channel);
 }

@@ -1,7 +1,7 @@
 /*
  * JBoss, Home of Professional Open Source
  *
- * Copyright 2012 Red Hat, Inc. and/or its affiliates.
+ * Copyright 2013 Red Hat, Inc. and/or its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,37 +25,24 @@ import java.util.Set;
 
 import org.xnio.Option;
 import org.xnio.OptionMap;
-import org.xnio.Options;
 import org.xnio.StreamConnection;
 import org.xnio.XnioExecutor;
 import org.xnio.XnioIoThread;
 import org.xnio.channels.AcceptingChannel;
 import org.xnio.channels.UnsupportedOptionException;
 
-final class TcpServer extends NativeAcceptChannel<TcpServer> implements AcceptingChannel<StreamConnection> {
+final class UnixServer extends NativeAcceptChannel<UnixServer> implements AcceptingChannel<StreamConnection> {
 
     private static final Set<Option<?>> options = Option.setBuilder()
-            .add(Options.REUSE_ADDRESSES)
-            .add(Options.KEEP_ALIVE)
-            .add(Options.TCP_OOB_INLINE)
-            .add(Options.TCP_NODELAY) // ignored
             .create();
 
-    TcpServer(final NativeXnioWorker worker, final int fd, final OptionMap optionMap) throws IOException {
+    UnixServer(final NativeXnioWorker worker, final int fd, final OptionMap optionMap) throws IOException {
         super(worker, fd, optionMap);
         final NativeWorkerThread[] threads = worker.getAll();
         final int threadCount = threads.length;
         if (threadCount == 0) {
             throw log.noThreads();
         }
-        Native.testAndThrow(Native.setOptReuseAddr(fd, optionMap.get(Options.REUSE_ADDRESSES, true)));
-        if (optionMap.contains(Options.KEEP_ALIVE)) {
-            Native.testAndThrow(Native.setOptKeepAlive(fd, optionMap.get(Options.KEEP_ALIVE, false)));
-        }
-        if (optionMap.contains(Options.TCP_OOB_INLINE)) {
-            Native.testAndThrow(Native.setOptOobInline(fd, optionMap.get(Options.TCP_OOB_INLINE, false)));
-        }
-        // ignore TCP_NODELAY
     }
 
     public XnioExecutor getAcceptThread() {
@@ -67,7 +54,7 @@ final class TcpServer extends NativeAcceptChannel<TcpServer> implements Acceptin
     }
 
     protected NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread) {
-        return new TcpConnection(thread, fd);
+        return new UnixConnection(thread, fd);
     }
 
     public boolean supportsOption(final Option<?> option) {

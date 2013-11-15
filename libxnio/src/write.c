@@ -6,169 +6,219 @@
 #include <errno.h>
 
 JNIEXPORT jint JNICALL xnio_native(writeLong)(JNIEnv *env, jclass clazz, jint fd, jlong value) {
-    ssize_t res = write(fd, &value, sizeof value);
-    if (res < 0) {
-        return -errno;
+    ssize_t res;
+    while ((res = write(fd, &value, sizeof value)) == -1) {
+        int err = errno;
+        if (err != EINTR) {
+            return -err;
+        }
     }
     return 0;
 }
 
-JNIEXPORT jint JNICALL xnio_native(writeDirect)(JNIEnv *env, jclass clazz, jint fd, jobject bufferObj, jintArray posAndLimit) {
-    jint position, limit;
-    void *buffer = (*env)->GetDirectBufferAddress(env, bufferObj);
+JNIEXPORT jint JNICALL xnio_native(writeD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1) {
+    void *buffer = (*env)->GetDirectBufferAddress(env, b1);
     if (! buffer) {
         return -EINVAL;
     }
-    jint *pal = (*env)->GetPrimitiveArrayCritical(env, posAndLimit, 0);
-    if (! pal) {
-        return -ENOMEM;
-    }
-    position = pal[0];
-    limit = pal[1];
-    (*env)->ReleasePrimitiveArrayCritical(env, posAndLimit, pal, JNI_ABORT);
     ssize_t res;
-    if ((res = write(fd, buffer, limit - position)) == -1) {
-        return -errno;
-    }
-    if (res > 0) {
-        position += res;
-        (*env)->SetIntArrayRegion(env, posAndLimit, 0, 1, &position);
+    while ((res = write(fd, buffer + p1, l1 - p1)) == -1) {
+        int err = errno;
+        if (err != EINTR) {
+            return -err;
+        }
     }
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(writeDirectGather)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray) {
-    struct iovec iov[len];
+JNIEXPORT jlong JNICALL xnio_native(writeDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2) {
+    struct iovec iov[2];
+    void *buffer1 = (*env)->GetDirectBufferAddress(env, b1);
+    if (! buffer1) {
+        return -EINVAL;
+    }
+    void *buffer2 = (*env)->GetDirectBufferAddress(env, b2);
+    if (! buffer2) {
+        return -EINVAL;
+    }
+    iov[0].iov_base = buffer1 + p1;
+    iov[0].iov_len = l1 - p1;
+    iov[1].iov_base = buffer2 + p2;
+    iov[1].iov_len = l2 - p2;
     ssize_t res;
-
-    jint *pos = (*env)->GetPrimitiveArrayCritical(env, posArray, 0);
-    if (! pos) {
-        res = -ENOMEM;
-        goto fail0;
-    }
-    jint *limit = (*env)->GetPrimitiveArrayCritical(env, limitArray, 0);
-    if (! limit) {
-        res = -ENOMEM;
-        goto fail1;
-    }
-    for (int i = 0; i < len; i ++) {
-        if (! (iov[i].iov_base = (*env)->GetDirectBufferAddress(env, (*env)->GetObjectArrayElement(env, bufferObjs, i)))) {
-            res = -EINVAL;
-            goto fail2;
-        }
-        iov[i].iov_len = limit[i] - pos[i];
-    }
-    (*env)->ReleasePrimitiveArrayCritical(env, limitArray, limit, JNI_ABORT);
-    (*env)->ReleasePrimitiveArrayCritical(env, posArray, pos, JNI_ABORT);
-
-    if ((res = writev(fd, iov, len)) < 0) {
-        return -errno;
-    }
-
-    jlong ret = res;
-    jint n;
-    for (int i = 0; i < len; i++) {
-        size_t s = iov[i].iov_len;
-        if (s > res) {
-            n = res;
-            (*env)->SetIntArrayRegion(env, posArray, i, 1, &n);
-            break;
-        } else {
-            jint n = s;
-            (*env)->SetIntArrayRegion(env, posArray, i, 1, &n);
-            res -= s;
+    while ((res = writev(fd, iov, 2)) == -1) {
+        int err = errno;
+        if (err != EINTR) {
+            return -err;
         }
     }
-    return ret;
-
-fail2:
-    (*env)->ReleasePrimitiveArrayCritical(env, limitArray, limit, JNI_ABORT);
-fail1:
-    (*env)->ReleasePrimitiveArrayCritical(env, posArray, pos, JNI_ABORT);
-fail0:
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(writeHeap)(JNIEnv *env, jclass clazz, jint fd, jbyteArray bufferObj, jintArray posAndLimit) {
-    jint position, limit;
-    jbyte *buffer = (*env)->GetByteArrayElements(env, bufferObj, 0);
+JNIEXPORT jlong JNICALL xnio_native(writeDDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2, jobject b3, jint p3, jint l3) {
+    struct iovec iov[3];
+    void *buffer1 = (*env)->GetDirectBufferAddress(env, b1);
+    if (! buffer1) {
+        return -EINVAL;
+    }
+    void *buffer2 = (*env)->GetDirectBufferAddress(env, b2);
+    if (! buffer2) {
+        return -EINVAL;
+    }
+    void *buffer3 = (*env)->GetDirectBufferAddress(env, b3);
+    if (! buffer3) {
+        return -EINVAL;
+    }
+    iov[0].iov_base = buffer1 + p1;
+    iov[0].iov_len = l1 - p1;
+    iov[1].iov_base = buffer2 + p2;
+    iov[1].iov_len = l2 - p2;
+    iov[2].iov_base = buffer3 + p3;
+    iov[2].iov_len = l3 - p3;
+    ssize_t res;
+    while ((res = writev(fd, iov, 3)) == -1) {
+        int err = errno;
+        if (err != EINTR) {
+            return -err;
+        }
+    }
+    return res;
+}
+
+JNIEXPORT jint JNICALL xnio_native(writeH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1) {
+    jbyte *buffer = (*env)->GetByteArrayElements(env, b1, 0);
     if (! buffer) {
         return -ENOMEM;
     }
-    jint *pal = (*env)->GetPrimitiveArrayCritical(env, posAndLimit, 0);
-    if (! pal) {
-        (*env)->ReleaseByteArrayElements(env, bufferObj, buffer, JNI_ABORT);
-        return -ENOMEM;
-    }
-    position = pal[0];
-    limit = pal[1];
-    (*env)->ReleasePrimitiveArrayCritical(env, posAndLimit, pal, JNI_ABORT);
     ssize_t res;
-    if ((res = write(fd, buffer, limit - position)) < 0) {
-        (*env)->ReleaseByteArrayElements(env, bufferObj, buffer, JNI_ABORT);
-        return -errno;
+    while ((res = write(fd, buffer + p1, l1 - p1)) == -1) {
+        int err = errno;
+        if (err != EINTR) {
+            (*env)->ReleaseByteArrayElements(env, b1, buffer, JNI_ABORT);
+            return -err;
+        }
     }
-    (*env)->ReleaseByteArrayElements(env, bufferObj, buffer, JNI_ABORT);
-    if (res > 0) {
-        position += res;
-        (*env)->SetIntArrayRegion(env, posAndLimit, 0, 1, &position);
-    }
+    (*env)->ReleaseByteArrayElements(env, b1, buffer, JNI_ABORT);
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(writeHeapGather)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray) {
-    struct iovec iov[len];
+JNIEXPORT jint JNICALL xnio_native(writeHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2) {
+    struct iovec iov[2];
+    jbyte *buffer1 = (*env)->GetByteArrayElements(env, b1, 0);
+    if (! buffer1) {
+        return -ENOMEM;
+    }
+    jbyte *buffer2 = (*env)->GetByteArrayElements(env, b2, 0);
+    if (! buffer2) {
+        (*env)->ReleaseByteArrayElements(env, b1, buffer1, JNI_ABORT);
+        return -ENOMEM;
+    }
+    iov[0].iov_base = buffer1;
+    iov[0].iov_len = l1 - p1;
+    iov[1].iov_base = buffer2;
+    iov[1].iov_len = l2 - p2;
     ssize_t res;
+    while ((res = writev(fd, iov, 2)) == -1) {
+        int err = errno;
+        if (err != EINTR) {
+            (*env)->ReleaseByteArrayElements(env, b2, buffer2, JNI_ABORT);
+            (*env)->ReleaseByteArrayElements(env, b1, buffer1, JNI_ABORT);
+            return -err;
+        }
+    }
+    (*env)->ReleaseByteArrayElements(env, b2, buffer2, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, b1, buffer1, JNI_ABORT);
+    return res;
+}
 
-    jint *pos = (*env)->GetPrimitiveArrayCritical(env, posArray, 0);
-    if (! pos) {
-        res = -ENOMEM;
-        goto fail0;
+JNIEXPORT jint JNICALL xnio_native(writeHHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2, jbyteArray b3, jint p3, jint l3) {
+    struct iovec iov[3];
+    jbyte *buffer1 = (*env)->GetByteArrayElements(env, b1, 0);
+    if (! buffer1) {
+        return -ENOMEM;
     }
-    jint *limit = (*env)->GetPrimitiveArrayCritical(env, limitArray, 0);
-    if (! limit) {
-        res = -ENOMEM;
-        goto fail1;
+    jbyte *buffer2 = (*env)->GetByteArrayElements(env, b2, 0);
+    if (! buffer2) {
+        (*env)->ReleaseByteArrayElements(env, b1, buffer1, JNI_ABORT);
+        return -ENOMEM;
     }
-    for (int i = 0; i < len; i ++) {
-        jbyteArray array = (jbyteArray) (*env)->GetObjectArrayElement(env, bufferObjs, i);
-        if (array) {
-            jbyte *bytes = (*env)->GetByteArrayElements(env, array, 0);
-            if (bytes) {
-                iov[i].iov_base = bytes;
-                iov[i].iov_len = limit[i] - pos[i];
-                continue;
+    jbyte *buffer3 = (*env)->GetByteArrayElements(env, b3, 0);
+    if (! buffer3) {
+        (*env)->ReleaseByteArrayElements(env, b2, buffer2, JNI_ABORT);
+        (*env)->ReleaseByteArrayElements(env, b1, buffer1, JNI_ABORT);
+        return -ENOMEM;
+    }
+    iov[0].iov_base = buffer1;
+    iov[0].iov_len = l1 - p1;
+    iov[1].iov_base = buffer2;
+    iov[1].iov_len = l2 - p2;
+    iov[2].iov_base = buffer3;
+    iov[2].iov_len = l3 - p3;
+    ssize_t res;
+    while ((res = writev(fd, iov, 3)) == -1) {
+        int err = errno;
+        if (err != EINTR) {
+            (*env)->ReleaseByteArrayElements(env, b3, buffer3, JNI_ABORT);
+            (*env)->ReleaseByteArrayElements(env, b2, buffer2, JNI_ABORT);
+            (*env)->ReleaseByteArrayElements(env, b1, buffer1, JNI_ABORT);
+            return -err;
+        }
+    }
+    (*env)->ReleaseByteArrayElements(env, b3, buffer3, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, b2, buffer2, JNI_ABORT);
+    (*env)->ReleaseByteArrayElements(env, b1, buffer1, JNI_ABORT);
+    return res;
+}
+
+static jlong writeMisc_internal(JNIEnv *env, jclass clazz, jint fd, jobjectArray buffers, jint offs, jint len, jint idx, struct iovec *iov) {
+    if (offs + idx == len) {
+        ssize_t res;
+        while ((res = writev(fd, iov, idx)) == -1) {
+            int err = errno;
+            if (err != EINTR) {
+                return -err;
             }
         }
-        for (i--; i >= 0; i--) {
-            (*env)->ReleaseByteArrayElements(env, array, (jbyte *) iov[i].iov_base, JNI_ABORT);
-        }
-        res = -ENOMEM;
-        goto fail2;
+        return res;
     }
-    (*env)->ReleasePrimitiveArrayCritical(env, limitArray, limit, JNI_ABORT);
-    (*env)->ReleasePrimitiveArrayCritical(env, posArray, pos, JNI_ABORT);
 
-    res = writev(fd, iov, len);
+    jobject bufObj = (*env)->GetObjectArrayElement(env, buffers, offs + idx);
+    if (! bufObj) {
+        iov[idx].iov_base = 0;
+        iov[idx].iov_len = 0;
+        return writeMisc_internal(env, clazz, fd, buffers, offs, len, idx + 1, iov);
+    } else {
+        jint pos = (*env)->GetIntField(env, bufObj, Buffer_pos);
+        jint lim = (*env)->GetIntField(env, bufObj, Buffer_lim);
 
-    jlong ret = res < 0 ? -errno : res;
-    jint n;
-    for (int i = 0; i < len; i++) {
-        jbyteArray array = (jbyteArray) (*env)->GetObjectArrayElement(env, bufferObjs, i);
-        (*env)->ReleaseByteArrayElements(env, array, (jbyte *) iov[i].iov_base, JNI_ABORT);
-        if (res >= 0) {
-            size_t s = iov[i].iov_len;
-            n = s > res ? res : s;
-            res -= s;
-            (*env)->SetIntArrayRegion(env, posArray, i, 1, &n);
+        void *buffer = (*env)->GetDirectBufferAddress(env, bufObj);
+        if (buffer) {
+            iov[idx].iov_base = buffer + pos;
+            iov[idx].iov_len = lim - pos;
+            return writeMisc_internal(env, clazz, fd, buffers, offs, len, idx + 1, iov);
+        } else {
+            // heap or nothing
+            jint offset = (*env)->GetIntField(env, bufObj, ByteBuffer_offset);
+            jbyteArray array = (*env)->GetObjectField(env, bufObj, ByteBuffer_array);
+            if (! array) {
+                return -EINVAL;
+            }
+            jbyte *bytes = (*env)->GetByteArrayElements(env, array, 0);
+            if (! bytes) {
+                return -ENOMEM;
+            }
+            iov[idx].iov_base = bytes + offset + pos;
+            iov[idx].iov_len = lim - pos;
+            jlong res = writeMisc_internal(env, clazz, fd, buffers, offs, len, idx + 1, iov);
+            (*env)->ReleaseByteArrayElements(env, array, bytes, JNI_ABORT);
+            return res;
         }
+        // not reachable
     }
-    return ret;
+    // not reachable
+}
 
-fail2:
-    (*env)->ReleasePrimitiveArrayCritical(env, limitArray, limit, JNI_ABORT);
-fail1:
-    (*env)->ReleasePrimitiveArrayCritical(env, posArray, pos, JNI_ABORT);
-fail0:
-    return res;
+JNIEXPORT jlong JNICALL xnio_native(writeMisc)(JNIEnv *env, jclass clazz, jint fd, jobjectArray buffers, jint offs, jint len) {
+    struct iovec iov[len];
+    return writeMisc_internal(env, clazz, fd, buffers, offs, len, 0, iov);
 }

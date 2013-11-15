@@ -88,25 +88,3 @@ JNIEXPORT jint JNICALL xnio_native(setOptTcpNoDelay)(JNIEnv *env, jclass clazz, 
     }
     return 0;
 }
-
-#ifdef TCP_CORK
-JNIEXPORT jint JNICALL xnio_native(getOptTcpCork)(JNIEnv *env, jclass clazz, jint fd) {
-    int res;
-    socklen_t len = sizeof res;
-    int r2 = getsockopt(fd, IPPROTO_TCP, TCP_CORK, &res, &len);
-    if (r2 < 0) {
-        return -errno;
-    }
-    return res;
-}
-
-JNIEXPORT jint JNICALL xnio_native(setOptTcpCork)(JNIEnv *env, jclass clazz, jint fd, jboolean value) {
-    int v = (int) value;
-    socklen_t len = sizeof v;
-    int r2 = setsockopt(fd, IPPROTO_TCP, TCP_CORK, &v, len);
-    if (r2 < 0) {
-        return -errno;
-    }
-    return 0;
-}
-#endif

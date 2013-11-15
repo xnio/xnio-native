@@ -10,16 +10,63 @@
 
 static int deadFD();
 
-extern int epoll_create(int) weak;
 extern int kqueue(void) weak;
+#ifdef __linux__
+extern int epoll_create(int) weak;
 extern ssize_t splice(int, loff_t *, int, loff_t *, size_t, unsigned int) weak;
-#ifdef __LINUX__
 extern ssize_t sendfile(int, int, off_t *, size_t) weak;
-#else
-extern int sendfile(int, int, off_t, off_t *, void *, int) weak;
 #endif
 
+jfieldID Buffer_pos;
+jfieldID Buffer_lim;
+
+jfieldID ByteBuffer_array;
+jfieldID ByteBuffer_offset;
+
+jfieldID FileChannelImpl_fd;
+jfieldID FileDescriptor_fd;
+
 JNIEXPORT jintArray JNICALL xnio_native(init)(JNIEnv *env, jclass clazz) {
+    jclass Buffer = (*env)->FindClass(env, "java/nio/Buffer");
+    if (! Buffer) {
+        return 0;
+    }
+    jclass ByteBuffer = (*env)->FindClass(env, "java/nio/ByteBuffer");
+    if (! ByteBuffer) {
+        return 0;
+    }
+    jclass FileChannelImpl = (*env)->FindClass(env, "sun/nio/ch/FileChannelImpl");
+    if (! FileChannelImpl) {
+        return 0;
+    }
+    jclass FileDescriptor = (*env)->FindClass(env, "java/io/FileDescriptor");
+    if (! FileDescriptor) {
+        return 0;
+    }
+    Buffer_pos = (*env)->GetFieldID(env, Buffer, "position", "I");
+    if (! Buffer_pos) {
+        return 0;
+    }
+    Buffer_lim = (*env)->GetFieldID(env, Buffer, "limit", "I");
+    if (! Buffer_lim) {
+        return 0;
+    }
+    ByteBuffer_array = (*env)->GetFieldID(env, ByteBuffer, "hb", "[B");
+    if (! ByteBuffer_array) {
+        return 0;
+    }
+    ByteBuffer_offset = (*env)->GetFieldID(env, ByteBuffer, "offset", "I");
+    if (! ByteBuffer_offset) {
+        return 0;
+    }
+    FileChannelImpl_fd = (*env)->GetFieldID(env, FileChannelImpl, "fd", "Ljava/io/FileDescriptor;");
+    if (! FileChannelImpl_fd) {
+        return 0;
+    }
+    FileDescriptor_fd = (*env)->GetFieldID(env, FileDescriptor, "fd", "I");
+    if (! FileDescriptor_fd) {
+        return 0;
+    }
     jintArray array = (*env)->NewIntArray(env, 5);
     if (! array) {
         return NULL;
@@ -31,13 +78,15 @@ JNIEXPORT jintArray JNICALL xnio_native(init)(JNIEnv *env, jclass clazz) {
     struct sockaddr_un unused;
     realInts[3] = sizeof unused.sun_path;
     realInts[4] = 0;
-    if (epoll_create) { realInts[4] |= 0x01; }
     if (kqueue) { realInts[4] |= 0x02; }
 #ifdef DP_POLL
     realInts[4] |= 0x04;
 #endif
+#ifdef __linux__
+    if (epoll_create) { realInts[4] |= 0x01; }
     if (splice) { realInts[4] |= 0x10; }
     if (sendfile) { realInts[4] |= 0x20; }
+#endif
 #ifdef TCP_CORK
     realInts[4] |= 0x40;
 #endif

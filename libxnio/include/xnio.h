@@ -49,3 +49,25 @@ extern jbyteArray convert(JNIEnv *env, union sockaddr_any *addr);
 extern void convert2(JNIEnv *env, union sockaddr_any *addr, jbyteArray target);
 
 extern jint decode(JNIEnv *env, jbyteArray src, union sockaddr_any *dest);
+
+#define Buffer_pos org_xnio_Buffer_pos
+#define Buffer_lim org_xnio_Buffer_lim
+
+#define ByteBuffer_array org_xnio_ByteBuffer_array
+#define ByteBuffer_offset org_xnio_ByteBuffer_offset
+
+#define FileChannelImpl_fd org_xnio_FileChannelImpl_fd
+#define FileDescriptor_fd org_xnio_FileDescriptor_fd
+
+extern jfieldID Buffer_pos;
+extern jfieldID Buffer_lim;
+
+extern jfieldID ByteBuffer_array;
+extern jfieldID ByteBuffer_offset;
+
+extern jfieldID FileChannelImpl_fd;
+extern jfieldID FileDescriptor_fd;
+
+#define XNIO_EPOLL_READ    0x01
+#define XNIO_EPOLL_WRITE   0x02
+#define XNIO_EPOLL_EDGE    0x04

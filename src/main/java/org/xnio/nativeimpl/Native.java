@@ -29,6 +29,7 @@ import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ReadOnlyBufferException;
+import java.nio.channels.FileChannel;
 import java.util.Arrays;
 import org.jboss.logging.Logger;
 import org.xnio.Buffers;
@@ -61,24 +62,21 @@ final class Native {
     static {
         System.loadLibrary("xnio");
         final int[] constants = init();
-        if (constants[0] < 0) {
-            throw new IOError(exceptionFor(constants[0]));
-        }
         try {
             DEAD_FD = testAndThrow(constants[0]);
         } catch (IOException e) {
             throw new IOError(e);
         }
-        EAGAIN = constants[1];
-        EINTR = constants[2];
-        UNIX_PATH_LEN = constants[3];
-        HAS_EPOLL = allAreSet(constants[4], (1 << 0));
-        HAS_KQUEUE = allAreSet(constants[4], (1 << 1));
-        HAS_DEV_POLL = allAreSet(constants[4], (1 << 2));
-        HAS_PORTS = allAreSet(constants[4], (1 << 3));
-        HAS_SPLICE = allAreSet(constants[4], (1 << 4));
-        HAS_SENDFILE = allAreSet(constants[4], (1 << 5));
-        HAS_CORK = allAreSet(constants[4], (1 << 6));
+        EAGAIN          = constants[1];
+        EINTR           = constants[2];
+        UNIX_PATH_LEN   = constants[3];
+        HAS_EPOLL       = allAreSet(constants[4], 0b0000001);
+        HAS_KQUEUE      = allAreSet(constants[4], 0b0000010);
+        HAS_DEV_POLL    = allAreSet(constants[4], 0b0000100);
+        HAS_PORTS       = allAreSet(constants[4], 0b0001000);
+        HAS_SPLICE      = allAreSet(constants[4], 0b0010000);
+        HAS_SENDFILE    = allAreSet(constants[4], 0b0100000);
+        HAS_CORK        = allAreSet(constants[4], 0b1000000);
     }
 
     private Native() {}
@@ -138,47 +136,279 @@ final class Native {
 
     static native byte[] getPeerName(final int fd);
 
+    // read
+
     static native long readLong(final int fd);
 
-    static native int readDirect(final int fd, ByteBuffer buffer, int[] posAndLimit);
+    static native int readD(final int fd, ByteBuffer b1, int p1, int l1);
 
-    static native long readDirectScatter(final int fd, ByteBuffer[] buffers, int offs, int len, int[] pos, int[] limit);
+    static native long readDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2);
 
-    static native int readHeap(final int fd, byte[] bytes, int[] posAndLimit);
+    static native long readDDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2, ByteBuffer b3, int p3, int l3);
 
-    static native long readHeapScatter(final int fd, byte[][] bytes, int[] pos, int[] limit);
+    static native int readH(final int fd, byte[] b1, int p1, int l1);
+
+    static native long readHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2);
+
+    static native long readHHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2, byte[] b3, int p3, int l3);
+
+    // slower
+    static native long readMisc(final int fd, ByteBuffer[] buffers, int offs, int len);
+
+    static int readSingle(final int fd, ByteBuffer buf1) throws IOException {
+        if (buf1.isReadOnly()) {
+            throw new ReadOnlyBufferException();
+        }
+        final int cnt;
+        final int pos1 = buf1.position();
+        if (buf1.isDirect()) {
+            cnt = testAndThrowNB(readD(fd, buf1, pos1, buf1.limit()));
+        } else {
+            cnt = testAndThrowNB(readH(fd, buf1.array(), pos1 + buf1.arrayOffset(), buf1.limit() + buf1.arrayOffset()));
+        }
+        if (cnt > 0) {
+            buf1.position(pos1 + cnt);
+        }
+        return cnt == 0 ? -1 : cnt;
+    }
+
+    static long readScatter(final int fd, ByteBuffer[] buffers, int offs, int len) throws IOException {
+        if (len <= 0L) {
+            return 0L;
+        }
+        final ByteBuffer buf1 = buffers[offs];
+        if (buf1.isReadOnly()) {
+            throw new ReadOnlyBufferException();
+        }
+        final int pos1 = buf1.position();
+        final int lim1 = buf1.limit();
+        final boolean dir1 = buf1.isDirect();
+        if (len == 1) {
+            final int cnt;
+            if (dir1) {
+                cnt = testAndThrowNB(readD(fd, buf1, pos1, lim1));
+            } else {
+                final int off1 = buf1.arrayOffset();
+                cnt = testAndThrowNB(readH(fd, buf1.array(), pos1 + off1, lim1 + off1));
+            }
+            if (cnt > 0) {
+                buf1.position(pos1 + cnt);
+            }
+            return cnt;
+        }
+        final ByteBuffer buf2 = buffers[offs + 1];
+        if (buf2.isReadOnly()) {
+            throw new ReadOnlyBufferException();
+        }
+        final int pos2 = buf2.position();
+        final int lim2 = buf2.limit();
+        final boolean dir2 = buf2.isDirect();
+        if (len == 2) {
+            final long cnt;
+            if (dir1 && dir2) {
+                cnt = testAndThrowNB(readDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
+            } else if (!dir1 && !dir2) {
+                final int off1 = buf1.arrayOffset();
+                final int off2 = buf2.arrayOffset();
+                cnt = testAndThrowNB(readHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
+            } else {
+                cnt = readMisc(fd, buffers, offs, len);
+            }
+            if (cnt > 0L) {
+                if (pos1 + cnt <= lim1) {
+                    buf1.position(pos1 + (int) cnt);
+                } else {
+                    buf1.position(lim1);
+                    buf2.position(pos2 + (int) (cnt - (lim1 - pos1)));
+                }
+            }
+            return cnt;
+        }
+        final ByteBuffer buf3 = buffers[offs + 2];
+        if (buf3.isReadOnly()) {
+            throw new ReadOnlyBufferException();
+        }
+        final int pos3 = buf3.position();
+        final int lim3 = buf3.limit();
+        final boolean dir3 = buf3.isDirect();
+        if (len == 3) {
+            final long cnt;
+            if (dir1 && dir2 && dir3) {
+                cnt = testAndThrowNB(readDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
+            } else if (!dir1 && !dir2 && !dir3) {
+                final int off1 = buf1.arrayOffset();
+                final int off2 = buf2.arrayOffset();
+                final int off3 = buf3.arrayOffset();
+                cnt = testAndThrowNB(readHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
+            } else {
+                cnt = readMisc(fd, buffers, offs, len);
+            }
+            if (cnt > 0L) {
+                if (pos1 + cnt <= lim1) {
+                    buf1.position(pos1 + (int) cnt);
+                } else if (pos1 + cnt - lim1 <= lim2) {
+                    buf1.position(lim1);
+                    buf2.position(pos2 + (int) (cnt - (lim1 - pos1)));
+                } else {
+                    buf1.position(lim1);
+                    buf2.position(lim2);
+                    buf3.position(pos3 + (int) (cnt - (lim1 - pos1 + lim2 - pos2)));
+                }
+            }
+            return cnt;
+        }
+        for (int i = 3; i < len; i ++) {
+            if (buffers[i].isReadOnly()) {
+                throw new ReadOnlyBufferException();
+            }
+        }
+        final long cnt = readMisc(fd, buffers, offs, len);
+        Buffers.trySkip(buffers, offs, len, cnt);
+        return cnt;
+    }
+
+    // write
 
     static native int writeLong(final int fd, final long value);
 
-    static native int writeDirect(final int fd, ByteBuffer buffer, int[] posAndLimit);
+    static native int writeD(final int fd, ByteBuffer b1, int p1, int l1);
 
-    static native long writeDirectGather(final int fd, ByteBuffer[] buffers, int offs, int len, int[] pos, int[] lim);
+    static native long writeDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2);
 
-    static native int writeHeap(final int fd, byte[] bytes, int[] posAndLimit);
+    static native long writeDDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2, ByteBuffer b3, int p3, int l3);
 
-    static native long writeHeapGather(final int fd, byte[][] bytes, int[] pos, int[] lim);
+    static native int writeH(final int fd, byte[] b1, int p1, int l1);
+
+    static native long writeHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2);
+
+    static native long writeHHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2, byte[] b3, int p3, int l3);
+
+    // slower
+    static native long writeMisc(final int fd, ByteBuffer[] buffers, int offs, int len);
+
+    static native int flushTcpCork(final int fd);
+
+    static int writeSingle(final int fd, ByteBuffer buf1) throws IOException {
+        final int cnt;
+        final int pos1 = buf1.position();
+        if (buf1.isDirect()) {
+            cnt = testAndThrowNB(writeD(fd, buf1, pos1, buf1.limit()));
+        } else {
+            cnt = testAndThrowNB(writeH(fd, buf1.array(), pos1 + buf1.arrayOffset(), buf1.limit() + buf1.arrayOffset()));
+        }
+        if (cnt > 0) {
+            buf1.position(pos1 + cnt);
+        }
+        return cnt == 0 ? -1 : cnt;
+    }
+
+    static long writeGather(final int fd, ByteBuffer[] buffers, int offs, int len) throws IOException {
+        if (len <= 0L) {
+            return 0L;
+        }
+        final ByteBuffer buf1 = buffers[offs];
+        final int pos1 = buf1.position();
+        final int lim1 = buf1.limit();
+        final boolean dir1 = buf1.isDirect();
+        if (len == 1) {
+            final int cnt;
+            if (dir1) {
+                cnt = testAndThrowNB(writeD(fd, buf1, pos1, lim1));
+            } else {
+                final int off1 = buf1.arrayOffset();
+                cnt = testAndThrowNB(writeH(fd, buf1.array(), pos1 + off1, lim1 + off1));
+            }
+            if (cnt > 0) {
+                buf1.position(pos1 + cnt);
+            }
+            return cnt;
+        }
+        final ByteBuffer buf2 = buffers[offs + 1];
+        final int pos2 = buf2.position();
+        final int lim2 = buf2.limit();
+        final boolean dir2 = buf2.isDirect();
+        if (len == 2) {
+            final long cnt;
+            if (dir1 && dir2) {
+                cnt = testAndThrowNB(writeDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
+            } else if (!dir1 && !dir2) {
+                final int off1 = buf1.arrayOffset();
+                final int off2 = buf2.arrayOffset();
+                cnt = testAndThrowNB(writeHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
+            } else {
+                cnt = writeMisc(fd, buffers, offs, len);
+            }
+            if (cnt > 0L) {
+                if (pos1 + cnt <= lim1) {
+                    buf1.position(pos1 + (int) cnt);
+                } else {
+                    buf1.position(lim1);
+                    buf2.position(pos2 + (int) (cnt - (lim1 - pos1)));
+                }
+            }
+            return cnt;
+        }
+        final ByteBuffer buf3 = buffers[offs + 2];
+        final int pos3 = buf3.position();
+        final int lim3 = buf3.limit();
+        final boolean dir3 = buf3.isDirect();
+        if (len == 3) {
+            final long cnt;
+            if (dir1 && dir2 && dir3) {
+                cnt = testAndThrowNB(writeDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
+            } else if (!dir1 && !dir2 && !dir3) {
+                final int off1 = buf1.arrayOffset();
+                final int off2 = buf2.arrayOffset();
+                final int off3 = buf3.arrayOffset();
+                cnt = testAndThrowNB(writeHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
+            } else {
+                cnt = writeMisc(fd, buffers, offs, len);
+            }
+            if (cnt > 0L) {
+                if (pos1 + cnt <= lim1) {
+                    buf1.position(pos1 + (int) cnt);
+                } else if (pos1 + cnt - lim1 <= lim2) {
+                    buf1.position(lim1);
+                    buf2.position(pos2 + (int) (cnt - (lim1 - pos1)));
+                } else {
+                    buf1.position(lim1);
+                    buf2.position(lim2);
+                    buf3.position(pos3 + (int) (cnt - (lim1 - pos1 + lim2 - pos2)));
+                }
+            }
+            return cnt;
+        }
+        final long cnt = writeMisc(fd, buffers, offs, len);
+        Buffers.trySkip(buffers, offs, len, cnt);
+        return cnt;
+    }
+
+
+    // receive
 
     static native int recvDirect(final int fd, ByteBuffer buffer, byte[] srcAddr, byte[] destAddr);
 
-    static native int recvDirectScatter(final int fd, ByteBuffer[] buffers, int offs, int len, int[] pos, int[] lim, byte[] srcAddr, byte[] destAddr);
+    static native int recvHeap(final int fd, byte[] bytes, int offs, int len, int pos, int lim, byte[] srcAddr, byte[] destAddr);
 
-    static native int recvHeap(final int fd, byte[] bytes, byte[] srcAddr, byte[] destAddr);
+    static native int recvMisc(final int fd, ByteBuffer[] buffers, int offs, int len, byte[] srcAddr, byte[] destAddr);
 
-    static native int recvHeapScatter(final int fd, byte[] bytes, byte[][] srcAddr, byte[][] destAddr);
+    // send
 
     static native int sendDirect(final int fd, ByteBuffer buffer, int[] posAndLimit, byte[] destAddr);
 
-    static native int sendDirectGather(final int fd, ByteBuffer[] buffers, int offs, int len, int[] pos, int[] lim, byte[] destAddr);
+    static native int sendHeap(final int fd, byte[] bytes, int offs, int len, byte[] destAddr);
 
-    static native int sendHeap(final int fd, byte[] bytes, int[] posAndLimit, byte[] destAddr);
+    static native int sendMisc(final int fd, ByteBuffer[] buffers, int offs, int len, byte[] destAddr);
 
-    static native int sendHeapScatter(final int fd, byte[][] bytes, int[] pos, int[] lim, byte[] destAddr);
+    // transfer
 
     static native long xferHeap(final int srcFd, byte[] bytes, int[] posAndLimit, int destFd);
 
     static native long xferDirect(final int srcFd, ByteBuffer buffer, int[] posAndLimit, int destFd);
 
-    static native long sendfile(final int dest, int src, long offset, long length);
+    static native long sendfile(final int dest, FileChannel src, long offset, long length);
+
+    // util
 
     static native int socketPair(int[] fds);
 
@@ -205,6 +435,8 @@ final class Native {
     static native int listen(int fd, int backlog);
 
     static native int finishConnect(int fd);
+
+    // options
 
     static native int getOptBroadcast(int fd);
 
@@ -250,29 +482,33 @@ final class Native {
 
     static native int setOptTcpNoDelay(int fd, boolean enabled);
 
-    static native int getOptTcpCork(int fd);
-
-    static native int setOptTcpCork(int fd, boolean enabled);
-
     static native int getOptMulticastTtl(int fd);
 
     static native int setOptMulticastTtl(int fd, boolean enabled);
 
     // linux
 
+    static final int EPOLL_FLAG_READ    = 0b0000_0001;
+    static final int EPOLL_FLAG_WRITE   = 0b0000_0010;
+    static final int EPOLL_FLAG_EDGE    = 0b0000_0100;
+
     static native int eventFD();
 
     static native int epollCreate();
 
-    static native int epollWait(final int efd, int[] fds, int timeout);
+    static native int epollWait(final int efd, long[] events, int timeout);
 
-    static native int epollCtlAdd(final int efd, final int fd, boolean read, boolean write, boolean edge);
+    static native int epollCtlAdd(final int efd, final int fd, final int flags, final int id);
 
-    static native int epollCtlMod(final int efd, final int fd, boolean read, boolean write, boolean edge);
+    static native int epollCtlMod(final int efd, final int fd, final int flags);
 
     static native int epollCtlDel(final int efd, final int fd);
 
-    static native long splice(int src, long srcOffs, int dest, long destOffs, long length, boolean more);
+    static native int createTimer(final int seconds, final int nanos);
+
+    static native long spliceToFile(int src, FileChannel dest, long destOffs, long length);
+
+    static native long transfer(final int srcFd, final long count, final ByteBuffer throughBuffer, final int destFd);
 
     static native long tee(int src, int dest, long length, boolean more);
 
@@ -283,9 +519,22 @@ final class Native {
         return new IOException(msg);
     }
 
+    static int testAndThrowNB(int res) throws IOException {
+        return res == -EAGAIN ? 0 : testAndThrow(res);
+    }
+
+    static long testAndThrowNB(long res) throws IOException {
+        return res == -EAGAIN ? 0L : testAndThrow(res);
+    }
+
     static int testAndThrow(int res) throws IOException {
         if (res < 0) throw exceptionFor(res);
-        return res;
+        return res == 0 ? -1 : res;
+    }
+
+    static long testAndThrow(long res) throws IOException {
+        if (res < 0) throw exceptionFor((int) res);
+        return res == 0L ? -1L : res;
     }
 
     @SuppressWarnings({ "deprecation" })
@@ -420,268 +669,6 @@ final class Native {
         } catch (ArrayIndexOutOfBoundsException e) {
             return false;
         }
-    }
-
-    static int doRead(int fd, ByteBuffer buffer) throws IOException {
-        if (! buffer.hasRemaining()) {
-            return 0;
-        }
-        if (buffer.isReadOnly()) {
-            throw new ReadOnlyBufferException();
-        }
-        int res;
-        final int[] posAndLimit = new int[2];
-        if (buffer.isDirect()) {
-            posAndLimit[0] = buffer.position();
-            posAndLimit[1] = buffer.limit();
-            res = readDirect(fd, buffer, posAndLimit);
-            if (res == 0) {
-                return -1;
-            }
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor(res);
-            }
-            if (res > 0) {
-                buffer.position(posAndLimit[0]);
-            }
-        } else if (buffer.hasArray()) {
-            final byte[] array = buffer.array();
-            final int offs = buffer.arrayOffset();
-            posAndLimit[0] = buffer.position() + offs;
-            posAndLimit[1] = buffer.limit() + offs;
-            res = readHeap(fd, array, posAndLimit);
-            if (res == 0) {
-                return -1;
-            }
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor(res);
-            }
-            if (res > 0) {
-                buffer.position(posAndLimit[0] - offs);
-            }
-        } else {
-            final byte[] array = Buffers.take(buffer.duplicate());
-            posAndLimit[0] = 0;
-            posAndLimit[1] = array.length;
-            res = readHeap(fd, array, posAndLimit);
-            if (res == 0) {
-                return -1;
-            }
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor(res);
-            }
-            if (res > 0) {
-                buffer.put(array, 0, posAndLimit[0]);
-            }
-        }
-        log.tracef("Read %d bytes from FD %d (single)", res, fd);
-        return res;
-    }
-
-    static long doRead(final int fd, final ByteBuffer[] dsts, final int offset, final int length) throws IOException {
-        if (! Buffers.hasRemaining(dsts, offset, length)) {
-            return 0L;
-        }
-        Buffers.assertWritable(dsts, offset, length);
-        final boolean direct = Buffers.isDirect(dsts, offset, length);
-        long res = 0L;
-        final int[] pos = new int[length];
-        final int[] limit = new int[length];
-        if (direct) {
-            for (int i = 0; i < length; i ++) {
-                final ByteBuffer buffer = dsts[offset + i];
-                pos[i] = buffer.position();
-                limit[i] = buffer.limit();
-            }
-            res = readDirectScatter(fd, dsts, offset, length, pos, limit);
-            if (res == 0) {
-                return -1;
-            }
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor((int) res);
-            }
-            if (res > 0) {
-                for (int i = 0; i < length; i ++) {
-                    final ByteBuffer buffer = dsts[offset + i];
-                    buffer.position(pos[i]);
-                }
-            }
-        } else {
-            final byte[][] bytes = new byte[length][];
-            for (int i = 0; i < length; i ++) {
-                final ByteBuffer buffer = dsts[offset + i];
-                if (buffer.hasArray()) {
-                    bytes[i] = buffer.array();
-                    final int arrayOffs = buffer.arrayOffset();
-                    pos[i] = buffer.position() + arrayOffs;
-                    limit[i] = buffer.limit() + arrayOffs;
-                } else {
-                    bytes[i] = Buffers.take(buffer.duplicate());
-                    pos[i] = 0;
-                    limit[i] = bytes[i].length;
-                }
-            }
-            res = readHeapScatter(fd, bytes, pos, limit);
-            if (res == 0) {
-                return -1;
-            }
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor((int) res);
-            }
-            if (res > 0) {
-                for (int i = 0; i < length; i ++) {
-                    final ByteBuffer buffer = dsts[offset + i];
-                    if (buffer.hasArray()) {
-                        final int arrayOffs = buffer.arrayOffset();
-                        buffer.position(pos[i] - arrayOffs);
-                    } else {
-                        buffer.put(bytes[i], 0, limit[i]);
-                    }
-                }
-            }
-        }
-        log.tracef("Read %d bytes from FD %d (scatter)", res, fd);
-        return res;
-    }
-
-    static int doWrite(final int fd, final ByteBuffer buffer) throws IOException {
-        if (! buffer.hasRemaining()) {
-            return 0;
-        }
-        final int res;
-        final int[] posAndLimit = new int[2];
-        if (buffer.isDirect()) {
-            posAndLimit[0] = buffer.position();
-            posAndLimit[1] = buffer.limit();
-            res = writeDirect(fd, buffer, posAndLimit);
-            if (res < 0) {
-                throw exceptionFor(res);
-            }
-            if (res > 0) {
-                buffer.position(posAndLimit[0]);
-            }
-        } else if (buffer.hasArray()) {
-            final byte[] array = buffer.array();
-            final int offs = buffer.arrayOffset();
-            posAndLimit[0] = buffer.position() + offs;
-            posAndLimit[1] = buffer.limit() + offs;
-            res = writeHeap(fd, array, posAndLimit);
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor(res);
-            }
-            if (res > 0) {
-                buffer.position(posAndLimit[0] - offs);
-            }
-        } else {
-            final byte[] array = Buffers.take(buffer.duplicate());
-            posAndLimit[0] = 0;
-            posAndLimit[1] = buffer.remaining();
-            res = writeHeap(fd, array, posAndLimit);
-            if (res < 0) {
-                throw exceptionFor(res);
-            }
-            if (res > 0) {
-                Buffers.skip(buffer, posAndLimit[0]);
-            }
-        }
-        log.tracef("Wrote %d bytes to FD %d (single)", res, fd);
-        return res;
-    }
-
-    static long doWrite(final int fd, final ByteBuffer[] srcs, final int offset, final int length) throws IOException {
-        if (! Buffers.hasRemaining(srcs, offset, length)) {
-            return 0L;
-        }
-        Buffers.assertWritable(srcs, offset, length);
-        final boolean direct = Buffers.isDirect(srcs, offset, length);
-        long res = 0L;
-        final int[] pos = new int[length];
-        final int[] limit = new int[length];
-        if (direct) {
-            for (int i = 0; i < length; i ++) {
-                final ByteBuffer buffer = srcs[offset + i];
-                pos[i] = buffer.position();
-                limit[i] = buffer.limit();
-            }
-            res = writeDirectGather(fd, srcs, offset, length, pos, limit);
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor((int) res);
-            }
-            if (res > 0) {
-                for (int i = 0; i < length; i ++) {
-                    final ByteBuffer buffer = srcs[offset + i];
-                    buffer.position(pos[i]);
-                }
-            }
-        } else {
-            final byte[][] bytes = new byte[length][];
-            for (int i = 0; i < length; i ++) {
-                final ByteBuffer buffer = srcs[offset + i];
-                if (buffer.hasArray()) {
-                    bytes[i] = buffer.array();
-                    final int arrayOffs = buffer.arrayOffset();
-                    pos[i] = buffer.position() + arrayOffs;
-                    limit[i] = buffer.limit() + arrayOffs;
-                } else {
-                    bytes[i] = Buffers.take(buffer.duplicate());
-                    pos[i] = 0;
-                    limit[i] = buffer.remaining();
-                }
-            }
-            res = writeHeapGather(fd, bytes, pos, limit);
-            if (res == -EAGAIN) {
-                return 0;
-            }
-            if (res < 0) {
-                throw exceptionFor((int) res);
-            }
-            if (res > 0) {
-                for (int i = 0; i < length; i ++) {
-                    final ByteBuffer buffer = srcs[offset + i];
-                    if (buffer.hasArray()) {
-                        final int arrayOffs = buffer.arrayOffset();
-                        buffer.position(pos[i] - arrayOffs);
-                    } else {
-                        Buffers.skip(buffer, pos[i]);
-                    }
-                }
-            }
-        }
-        log.tracef("Wrote %d bytes to FD %d (gather)", res, fd);
-        return res;
-    }
-
-    static long doTransfer(final int srcFd, final long count, final ByteBuffer throughBuffer, final int destFd) {
-        throw new UnsupportedOperationException();
-    }
-
-    static long doTransfer(final FileDescriptor srcDescriptor, final long position, final long count, final int destFd) {
-        throw new UnsupportedOperationException();
-    }
-
-    static long doTransfer(final int srcFd, final long position, final long count, final FileDescriptor destDescriptor) {
-        throw new UnsupportedOperationException();
     }
 }
 

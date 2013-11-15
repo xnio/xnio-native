@@ -22,369 +22,140 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import org.jboss.logging.Logger;
+
 import org.xnio.ChannelListener;
 import org.xnio.ChannelListeners;
+import org.xnio.IoUtils;
 import org.xnio.Option;
 import org.xnio.OptionMap;
 import org.xnio.Options;
+import org.xnio.XnioExecutor;
+import org.xnio.XnioIoThread;
+import org.xnio.XnioWorker;
+import org.xnio.channels.AcceptListenerSettable;
+import org.xnio.channels.CloseListenerSettable;
 import org.xnio.channels.SuspendableAcceptChannel;
 import org.xnio.channels.UnsupportedOptionException;
 
-import static java.util.concurrent.locks.LockSupport.unpark;
-import static org.xnio.Bits.allAreClear;
-import static org.xnio.Bits.allAreSet;
-import static org.xnio.Bits.longBitMask;
+import static org.xnio.nativeimpl.Log.log;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> extends NativeRawChannel<C> implements SuspendableAcceptChannel {
-    private static final Logger log = Logger.getLogger("org.xnio.native");
+abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements SuspendableAcceptChannel, AcceptListenerSettable<C>, CloseListenerSettable<C> {
 
     private volatile ChannelListener<? super C> acceptListener;
+    private volatile ChannelListener<? super C> closeListener;
 
     private final SocketAddress localAddress;
-    private final NativeWorkerThread[] threads;
+    private final AcceptChannelHandle[] handles;
+    private final int fd;
+    private final NativeXnioWorker worker;
 
     private volatile long connectionStatus = CONN_LOW_MASK | CONN_HIGH_MASK;
-
-    private static final long CONN_COUNT_MASK   = longBitMask(0, 19);
-    private static final long CONN_COUNT_BIT    = 0L;
-    private static final long CONN_COUNT_ONE    = 1L << CONN_COUNT_BIT;
-    private static final long CONN_LOW_MASK     = longBitMask(20, 39);
-    private static final long CONN_LOW_BIT      = 20L;
     @SuppressWarnings("unused")
-    private static final long CONN_LOW_ONE      = 1L << CONN_LOW_BIT;
-    private static final long CONN_HIGH_MASK    = longBitMask(40, 59);
-    private static final long CONN_HIGH_BIT     = 40L;
+    private volatile int readTimeout;
+    @SuppressWarnings("unused")
+    private volatile int writeTimeout;
+    private volatile int tokenConnectionCount;
+    volatile boolean resumed;
+
+    private static final long CONN_LOW_MASK     = 0x000000007FFFFFFFL;
+    private static final long CONN_LOW_BIT      = 0L;
+    @SuppressWarnings("unused")
+    private static final long CONN_LOW_ONE      = 1L;
+    private static final long CONN_HIGH_MASK    = 0x3FFFFFFF80000000L;
+    private static final long CONN_HIGH_BIT     = 31L;
     @SuppressWarnings("unused")
     private static final long CONN_HIGH_ONE     = 1L << CONN_HIGH_BIT;
-    private static final long CONN_SUSPENDING   = 1L << 60L;
-    private static final long CONN_FULL         = 1L << 61L;
-    private static final long CONN_RESUMED      = 1L << 62L;
 
-    @SuppressWarnings("unused")
-    private volatile Thread waitingThread;
+    private static final AtomicIntegerFieldUpdater<NativeAcceptChannel> readTimeoutUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeAcceptChannel.class, "readTimeout");
+    private static final AtomicIntegerFieldUpdater<NativeAcceptChannel> writeTimeoutUpdater = AtomicIntegerFieldUpdater.newUpdater(NativeAcceptChannel.class, "writeTimeout");
 
     @SuppressWarnings("rawtypes")
     private static final AtomicLongFieldUpdater<NativeAcceptChannel> connectionStatusUpdater = AtomicLongFieldUpdater.newUpdater(NativeAcceptChannel.class, "connectionStatus");
-    @SuppressWarnings("rawtypes")
-    private static final AtomicReferenceFieldUpdater<NativeAcceptChannel, Thread> waitingThreadUpdater = AtomicReferenceFieldUpdater.newUpdater(NativeAcceptChannel.class, Thread.class, "waitingThread");
 
     NativeAcceptChannel(final NativeXnioWorker worker, final int fd, final OptionMap optionMap) throws IOException {
-        super(worker, fd);
+        this.worker = worker;
+        this.fd = fd;
         localAddress = Native.getSocketAddress(Native.getSockName(fd));
-        final boolean write = optionMap.get(Options.WORKER_ESTABLISH_WRITING, false);
-        final int count = optionMap.get(Options.WORKER_ACCEPT_THREADS, 1);
-        final NativeWorkerThread[] threads = worker.choose(count, write);
-        for (NativeWorkerThread thread : threads) {
-            thread.register(this);
+        final NativeWorkerThread[] threads = worker.getAll();
+        final int threadCount = threads.length;
+        if (threadCount == 0) {
+            throw log.noThreads();
         }
-        this.threads = threads;
-    }
-
-    protected void notifyReady(final NativeWorkerThread thread) {
-        invokeAcceptListener();
-    }
-
-    public ChannelListener.Setter<? extends C> getAcceptSetter() {
-        return new ChannelListener.Setter<C>() {
-            public void set(final ChannelListener<? super C> listener) {
-                acceptListener = listener;
+        final int tokens = optionMap.get(Options.BALANCING_TOKENS, -1);
+        final int connections = optionMap.get(Options.BALANCING_CONNECTIONS, 16);
+        if (tokens != -1) {
+            if (tokens < 1 || tokens >= threadCount) {
+                throw log.balancingTokens();
             }
-        };
-    }
-
-    void invokeAcceptListener() {
-        if (readsResumed()) {
-            ChannelListeners.invokeChannelListener(getTyped(), acceptListener);
+            if (connections < 1) {
+                throw log.balancingConnectionCount();
+            }
+            tokenConnectionCount = connections;
         }
-    }
-
-    NativeWorkerThread[] getThreads() {
-        return threads;
-    }
-
-    protected final int doAccept() throws IOException {
-        // This method changes the state of the CONN_SUSPENDING flag.
-        // As such it is responsible to make sure that when the flag is cleared, the resume state accurately
-        // reflects the state of the CONN_RESUMED and CONN_FULL flags.
-        long oldVal, newVal;
-        do {
-            oldVal = connectionStatus;
-            if (allAreSet(oldVal, CONN_FULL)) {
-                log.trace("No connection accepted (full)");
-                return -1;
-            }
-            newVal = oldVal + CONN_COUNT_ONE;
-            if (getCount(newVal) >= getHighWater(newVal)) {
-                newVal |= CONN_SUSPENDING | CONN_FULL;
-            }
-        } while (! connectionStatusUpdater.compareAndSet(this, oldVal, newVal));
-        boolean wasSuspended = allAreClear(oldVal, CONN_RESUMED);
-        boolean doSuspend = ! wasSuspended && allAreClear(oldVal, CONN_SUSPENDING) && allAreSet(newVal, CONN_FULL | CONN_SUSPENDING);
-
-        final int sfd;
-        sfd = Native.accept(fd);
-        if (sfd == -Native.EAGAIN) {
-            log.trace("No connection accepted");
-            return -1;
+        if (optionMap.contains(Options.READ_TIMEOUT)) {
+            readTimeoutUpdater.lazySet(this, optionMap.get(Options.READ_TIMEOUT, 0));
         }
-        try {
-            return Native.testAndThrow(sfd);
-        } catch (IOException e) {
-            undoAccept(newVal, wasSuspended, doSuspend);
-            log.tracef("No connection accepted (%s)", e);
-            return -1;
+        if (optionMap.contains(Options.WRITE_TIMEOUT)) {
+            writeTimeoutUpdater.lazySet(this, optionMap.get(Options.WRITE_TIMEOUT, 0));
         }
-    }
-
-    private long updateWaterMark(int reqNewLowWater, int reqNewHighWater) {
-        // at least one must be specified
-        assert reqNewLowWater != -1 || reqNewHighWater != -1;
-        // if both given, low must be less than high
-        assert reqNewLowWater == -1 || reqNewHighWater == -1 || reqNewLowWater <= reqNewHighWater;
-        long oldVal, newVal;
-        int oldHighWater, oldLowWater, connCount;
-        int newLowWater, newHighWater;
-        do {
-            oldVal = connectionStatus;
-            oldLowWater = getLowWater(oldVal);
-            oldHighWater = getHighWater(oldVal);
-            connCount = getCount(oldVal);
-            newLowWater = reqNewLowWater == -1 ? oldLowWater : reqNewLowWater;
-            newHighWater = reqNewHighWater == -1 ? oldHighWater : reqNewHighWater;
-            // Make sure the new values make sense
-            if (reqNewLowWater != -1 && newLowWater > newHighWater) {
-                newHighWater = newLowWater;
-            } else if (reqNewHighWater != -1 && newHighWater < newLowWater) {
-                newLowWater = newHighWater;
+        int perThreadLow, perThreadLowRem;
+        int perThreadHigh, perThreadHighRem;
+        if (optionMap.contains(Options.CONNECTION_HIGH_WATER) || optionMap.contains(Options.CONNECTION_LOW_WATER)) {
+            final int highWater = optionMap.get(Options.CONNECTION_HIGH_WATER, Integer.MAX_VALUE);
+            final int lowWater = optionMap.get(Options.CONNECTION_LOW_WATER, highWater);
+            if (highWater <= 0) {
+                throw badHighWater();
             }
-            // See if the change would be redundant
-            if (oldLowWater == newLowWater && oldHighWater == newHighWater) {
-                return oldVal;
+            if (lowWater <= 0 || lowWater > highWater) {
+                throw badLowWater(highWater);
             }
-            newVal = withLowWater(withHighWater(oldVal, newHighWater), newLowWater);
-            // determine if we need to suspend because the high water line dropped below count
-            //    ...or if we need to resume because the low water line rose above count
-            if (allAreClear(oldVal, CONN_FULL) && oldHighWater > connCount && newHighWater <= connCount) {
-                newVal |= CONN_FULL | CONN_SUSPENDING;
-            } else if (allAreSet(oldVal, CONN_FULL) && oldLowWater < connCount && newLowWater >= connCount) {
-                newVal &= ~CONN_FULL;
-                newVal |= CONN_SUSPENDING;
-            }
-        } while (! connectionStatusUpdater.compareAndSet(this, oldVal, newVal));
-        if (allAreSet(oldVal, CONN_FULL) && allAreClear(newVal, CONN_FULL)) {
-            final Thread thread = waitingThreadUpdater.getAndSet(this, null);
-            if (thread != null) {
-                unpark(thread);
-            }
+            final long highLowWater = (long) highWater << CONN_HIGH_BIT | (long) lowWater << CONN_LOW_BIT;
+            connectionStatusUpdater.lazySet(this, highLowWater);
+            perThreadLow = lowWater / threadCount;
+            perThreadLowRem = lowWater % threadCount;
+            perThreadHigh = highWater / threadCount;
+            perThreadHighRem = highWater % threadCount;
+        } else {
+            perThreadLow = Integer.MAX_VALUE;
+            perThreadLowRem = 0;
+            perThreadHigh = Integer.MAX_VALUE;
+            perThreadHighRem = 0;
+            connectionStatusUpdater.lazySet(this, CONN_LOW_MASK | CONN_HIGH_MASK);
         }
-        if (allAreClear(oldVal, CONN_SUSPENDING) && allAreSet(newVal, CONN_SUSPENDING)) {
-            // we have work to do...
-            if (allAreSet(newVal, CONN_FULL)) {
-                for (NativeWorkerThread thread : getThreads()) {
-                    thread.resumeFd(fd, false, false);
-                }
-                synchronizeConnectionState(newVal, true);
-            } else {
-                for (NativeWorkerThread thread : getThreads()) {
-                    thread.resumeFd(fd, true, false);
-                }
-                synchronizeConnectionState(newVal, false);
-            }
+        final AcceptChannelHandle[] handles = new AcceptChannelHandle[threadCount];
+        for (int i = 0; i < threadCount; i++) {
+            AcceptChannelHandle handle = new AcceptChannelHandle(this, fd, threads[i], i < perThreadHighRem ? perThreadHigh + 1 : perThreadHigh, i < perThreadLowRem ? perThreadLow + 1 : perThreadLow);
+            handles[i] = handle;
+            threads[i].register(handle);
         }
-        return oldVal;
-    }
-
-    private static int getHighWater(final long value) {
-        return (int) ((value & CONN_HIGH_MASK) >> CONN_HIGH_BIT);
-    }
-
-    private static int getLowWater(final long value) {
-        return (int) ((value & CONN_LOW_MASK) >> CONN_LOW_BIT);
-    }
-
-    private static int getCount(final long value) {
-        return (int) ((value & CONN_COUNT_MASK) >> CONN_COUNT_BIT);
-    }
-
-    private static long withHighWater(final long oldValue, final int highWater) {
-        return oldValue & ~CONN_HIGH_MASK | (long)highWater << CONN_HIGH_BIT;
-    }
-
-    private static long withLowWater(final long oldValue, final int lowWater) {
-        return oldValue & ~CONN_LOW_MASK | (long)lowWater << CONN_LOW_BIT;
-    }
-
-    private void synchronizeConnectionState(long oldVal, boolean suspended) {
-        long newVal;
-        newVal = oldVal & ~CONN_SUSPENDING;
-        while (!connectionStatusUpdater.compareAndSet(this, oldVal, newVal)) {
-            oldVal = connectionStatus;
-            // it's up to whoever increments or decrements connectionStatus to set or clear CONN_FULL
-            if ((allAreClear(oldVal, CONN_FULL) && allAreSet(oldVal, CONN_RESUMED)) != suspended) {
-                for (NativeWorkerThread thread : getThreads()) {
-                    thread.resumeFd(fd, !(suspended = !suspended), false);
-                }
-            }
-            newVal = oldVal & ~CONN_SUSPENDING;
-        }
-    }
-
-    private void undoAccept(long newVal, final boolean wasSuspended, boolean doSuspend) {
-        // re-synchronize the resume status of this channel
-        // first assume that the value hasn't changed
-        long oldVal = newVal;
-        newVal = oldVal - CONN_COUNT_ONE;
-        newVal &= ~(CONN_FULL | CONN_SUSPENDING);
-        doSuspend = !doSuspend && !wasSuspended;
-        while (! connectionStatusUpdater.compareAndSet(this, oldVal, newVal)) {
-            // the value has changed - reevaluate everything necessary to resynchronize resume and decrement the count
-            oldVal = connectionStatus;
-            newVal = (oldVal - CONN_COUNT_ONE) & ~CONN_SUSPENDING;
-            if (allAreSet(newVal, CONN_FULL) && (newVal & CONN_COUNT_MASK) >> CONN_COUNT_BIT <= (newVal & CONN_LOW_MASK) >> CONN_LOW_BIT) {
-                // dropped below the line
-                newVal &= ~CONN_FULL;
-            }
-            if ((allAreClear(newVal, CONN_FULL) && allAreSet(newVal, CONN_RESUMED)) != doSuspend) {
-                for (NativeWorkerThread thread : getThreads()) {
-                    thread.resumeFd(fd, !(doSuspend = !doSuspend), false);
-                }
-            }
-        }
-        if (allAreSet(oldVal, CONN_FULL) && allAreClear(newVal, CONN_FULL)) {
-            final Thread thread = waitingThreadUpdater.getAndSet(this, null);
-            if (thread != null) {
-                unpark(thread);
+        this.handles = handles;
+        if (tokens > 0) {
+            for (int i = 0; i < threadCount; i ++) {
+                handles[i].initializeTokenCount(i < tokens ? connections : 0);
             }
         }
     }
 
-    void channelClosed() {
-        long oldVal, newVal;
-        do {
-            oldVal = connectionStatus;
-            newVal = oldVal - CONN_COUNT_ONE;
-            if (allAreSet(newVal, CONN_FULL) && (newVal & CONN_COUNT_MASK) >> CONN_COUNT_BIT <= (newVal & CONN_LOW_MASK) >> CONN_LOW_BIT) {
-                // dropped below the line
-                newVal &= ~CONN_FULL;
-                if (allAreSet(newVal, CONN_RESUMED)) {
-                    newVal |= CONN_SUSPENDING;
-                }
-            }
-        } while (! connectionStatusUpdater.compareAndSet(this, oldVal, newVal));
-        if (allAreSet(oldVal, CONN_FULL) && allAreClear(newVal, CONN_FULL)) {
-            final Thread thread = waitingThreadUpdater.getAndSet(this, null);
-            if (thread != null) {
-                unpark(thread);
-            }
-        }
-        if (allAreSet(oldVal, CONN_SUSPENDING) || allAreClear(newVal, CONN_SUSPENDING)) {
-            // done - we either didn't change the full setting, or we did but someone already has the suspending status,
-            // or the user doesn't want to resume anyway, so we don't need to do anything about it
-            return;
-        }
-        // We attempt to resume at this point.
-        boolean doSuspend = false;
-        for (NativeWorkerThread thread : getThreads()) {
-            thread.resumeFd(fd, true, false);
-        }
-        oldVal = newVal;
-        newVal &= ~CONN_SUSPENDING;
-        while (! connectionStatusUpdater.compareAndSet(this, oldVal, newVal)) {
-            // the value has changed - reevaluate everything necessary to resynchronize resume and decrement the count
-            oldVal = connectionStatus;
-            newVal = (oldVal - CONN_COUNT_ONE) & ~CONN_SUSPENDING;
-            if (allAreSet(newVal, CONN_FULL) && (newVal & CONN_COUNT_MASK) >> CONN_COUNT_BIT <= (newVal & CONN_LOW_MASK) >> CONN_LOW_BIT) {
-                // dropped below the line
-                newVal &= ~CONN_FULL;
-            }
-            if ((allAreClear(newVal, CONN_FULL) && allAreSet(newVal, CONN_RESUMED)) != doSuspend) {
-                for (NativeWorkerThread thread : getThreads()) {
-                    thread.resumeFd(fd, !(doSuspend = !doSuspend), false);
-                }
-            }
-        }
+    private static IllegalArgumentException badLowWater(final int highWater) {
+        return new IllegalArgumentException("Low water must be greater than 0 and less than or equal to high water (" + highWater + ")");
     }
 
-    protected void unregisterAllHandles() {
-        for (NativeWorkerThread thread : threads) {
-            thread.unregister(this);
+    private static IllegalArgumentException badHighWater() {
+        return new IllegalArgumentException("High water must be greater than 0");
+    }
+
+    public void close() throws IOException {
+        for (AcceptChannelHandle handle : handles) {
+            handle.unregister();
         }
-    }
-
-    protected void firstClose() {
-        invokeCloseListener();
-    }
-
-    public void awaitAcceptable() throws IOException {
-        final int fd = ThreadFd.get().fd;
-        if (addWaiter(fd, false)) try {
-            Native.testAndThrow(Native.await2(fd, false));
-        } finally {
-            removeWaiter(fd);
-        }
-    }
-
-    public void awaitAcceptable(final long time, final TimeUnit timeUnit) throws IOException {
-        final int fd = ThreadFd.get().fd;
-        if (addWaiter(fd, false)) try {
-            Native.testAndThrow(Native.await3(fd, false, timeUnit.toMillis(time)));
-        } finally {
-            removeWaiter(fd);
-        }
-    }
-
-    public void suspendAccepts() {
-        if (clearReadsResumed()) try {
-            for (NativeWorkerThread thread : threads) {
-                thread.resumeFd(fd, false, false);
-            }
-        } finally {
-            exitReadsResumed();
-        }
-    }
-
-    public void resumeAccepts() {
-        if (setReadsResumed()) try {
-            for (NativeWorkerThread thread : threads) {
-                thread.resumeFd(fd, true, false);
-            }
-        } finally {
-            exitReadsResumed();
-        }
-    }
-
-    public void wakeupAccepts() {
-        if (setReadsResumed()) try {
-            for (NativeWorkerThread thread : threads) {
-                thread.resumeFd(fd, true, false);
-            }
-        } finally {
-            exitReadsResumed();
-        }
-        threads[0].execute(new Runnable() {
-            public void run() {
-                ChannelListeners.invokeChannelListener(getTyped(), acceptListener);
-            }
-        });
-    }
-
-    void setAcceptListener(final ChannelListener<? super C> acceptListener) {
-        this.acceptListener = acceptListener;
-    }
-
-    public SocketAddress getLocalAddress() {
-        return localAddress;
-    }
-
-    public <A extends SocketAddress> A getLocalAddress(final Class<A> type) {
-        final SocketAddress address = getLocalAddress();
-        return type.isInstance(address) ? type.cast(address) : null;
+        // todo: for now we just leak these FDs forever; need to adapt FdRef to be able to point to us
+        Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
     }
 
     private static final Set<Option<?>> options = Option.setBuilder()
@@ -411,7 +182,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> extends Nat
         } else if (option == Options.CONNECTION_LOW_WATER) {
             return option.cast(Integer.valueOf(getLowWater(connectionStatus)));
         } else {
-            return super.getOption(option);
+            throw new UnsupportedOptionException();
         }
     }
 
@@ -434,8 +205,200 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> extends Nat
         } else if (option == Options.CONNECTION_LOW_WATER) {
             return option.cast(Integer.valueOf(getLowWater(updateWaterMark(Options.CONNECTION_LOW_WATER.cast(value, Integer.valueOf((int) (CONN_LOW_MASK >> CONN_LOW_BIT))).intValue(), -1))));
         } else {
-            return super.setOption(option, value);
+            throw new UnsupportedOptionException();
         }
     }
 
+    private long updateWaterMark(int reqNewLowWater, int reqNewHighWater) {
+        // at least one must be specified
+        assert reqNewLowWater != -1 || reqNewHighWater != -1;
+        // if both given, low must be less than high
+        assert reqNewLowWater == -1 || reqNewHighWater == -1 || reqNewLowWater <= reqNewHighWater;
+
+        long oldVal, newVal;
+        int oldHighWater, oldLowWater;
+        int newLowWater, newHighWater;
+
+        do {
+            oldVal = connectionStatus;
+            oldLowWater = getLowWater(oldVal);
+            oldHighWater = getHighWater(oldVal);
+            newLowWater = reqNewLowWater == -1 ? oldLowWater : reqNewLowWater;
+            newHighWater = reqNewHighWater == -1 ? oldHighWater : reqNewHighWater;
+            // Make sure the new values make sense
+            if (reqNewLowWater != -1 && newLowWater > newHighWater) {
+                newHighWater = newLowWater;
+            } else if (reqNewHighWater != -1 && newHighWater < newLowWater) {
+                newLowWater = newHighWater;
+            }
+            // See if the change would be redundant
+            if (oldLowWater == newLowWater && oldHighWater == newHighWater) {
+                return oldVal;
+            }
+            newVal = (long)newLowWater << CONN_LOW_BIT | (long)newHighWater << CONN_HIGH_BIT;
+        } while (! connectionStatusUpdater.compareAndSet(this, oldVal, newVal));
+
+        final AcceptChannelHandle[] conduits = handles;
+        final int threadCount = conduits.length;
+
+        int perThreadLow, perThreadLowRem;
+        int perThreadHigh, perThreadHighRem;
+
+        perThreadLow = newLowWater / threadCount;
+        perThreadLowRem = newLowWater % threadCount;
+        perThreadHigh = newHighWater / threadCount;
+        perThreadHighRem = newHighWater % threadCount;
+
+        for (int i = 0; i < conduits.length; i++) {
+            AcceptChannelHandle conduit = conduits[i];
+            conduit.executeSetTask(i < perThreadHighRem ? perThreadHigh + 1 : perThreadHigh, i < perThreadLowRem ? perThreadLow + 1 : perThreadLow);
+        }
+
+        return oldVal;
+    }
+
+    private static int getHighWater(final long value) {
+        return (int) ((value & CONN_HIGH_MASK) >> CONN_HIGH_BIT);
+    }
+
+    private static int getLowWater(final long value) {
+        return (int) ((value & CONN_LOW_MASK) >> CONN_LOW_BIT);
+    }
+
+    protected abstract NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread);
+
+    public NativeStreamConnection accept() throws IOException {
+        final NativeWorkerThread current = NativeWorkerThread.getCurrent();
+        final AcceptChannelHandle handle = handles[current.getNumber()];
+        if (! handle.getConnection()) {
+            return null;
+        }
+        final int accepted = Native.accept(fd);
+        boolean ok = false;
+        try {
+            if (accepted == -Native.EAGAIN) {
+                return null;
+            }
+            Native.testAndThrow(accepted);
+            try {
+                final NativeStreamConnection newConnection = constructConnection(accepted, current);
+                newConnection.setOption(Options.READ_TIMEOUT, Integer.valueOf(readTimeout));
+                newConnection.setOption(Options.WRITE_TIMEOUT, Integer.valueOf(writeTimeout));
+                ok = true;
+                return newConnection;
+            } finally {
+                if (! ok) Native.close(accepted);
+            }
+        } catch (IOException e) {
+            return null;
+        } finally {
+            if (! ok) {
+                handle.freeConnection();
+            }
+        }
+    }
+
+    public String toString() {
+        return String.format("TCP server (NIO) <%s>", Integer.toHexString(hashCode()));
+    }
+
+    public ChannelListener<? super C> getAcceptListener() {
+        return acceptListener;
+    }
+
+    public void setAcceptListener(final ChannelListener<? super C> acceptListener) {
+        this.acceptListener = acceptListener;
+    }
+
+    public ChannelListener.Setter<C> getAcceptSetter() {
+        return new AcceptListenerSettable.Setter<C>(this);
+    }
+
+    public boolean isOpen() {
+        // todo
+        throw new UnsupportedOperationException();
+    }
+
+    public SocketAddress getLocalAddress() {
+        return localAddress;
+    }
+
+    public <A extends SocketAddress> A getLocalAddress(final Class<A> type) {
+        final SocketAddress address = getLocalAddress();
+        return type.isInstance(address) ? type.cast(address) : null;
+    }
+
+    public void suspendAccepts() {
+        resumed = false;
+        doResume(false);
+    }
+
+    public void resumeAccepts() {
+        resumed = true;
+        doResume(true);
+    }
+
+    private void doResume(final boolean resumed) {
+        for (AcceptChannelHandle handle : handles) {
+            handle.thread.doResume(handle.fd, resumed, false);
+        }
+    }
+
+
+    public void wakeupAccepts() {
+        resumeAccepts();
+        final AcceptChannelHandle[] handles = this.handles;
+        final int idx = IoUtils.getThreadLocalRandom().nextInt(handles.length);
+        handles[idx].thread.execute(new Runnable() {
+            public void run() {
+                invokeAcceptHandler();
+            }
+        });
+    }
+
+    public void awaitAcceptable() throws IOException {
+        throw log.unsupported("awaitAcceptable");
+    }
+
+    public void awaitAcceptable(final long time, final TimeUnit timeUnit) throws IOException {
+        throw log.unsupported("awaitAcceptable");
+    }
+
+    @Deprecated
+    public XnioExecutor getAcceptThread() {
+        return getIoThread();
+    }
+
+    AcceptChannelHandle getHandle(final int number) {
+        return handles[number];
+    }
+
+    int getTokenConnectionCount() {
+        return tokenConnectionCount;
+    }
+
+    @SuppressWarnings("unchecked")
+    void invokeAcceptHandler() {
+        ChannelListeners.invokeChannelListener((C) this, acceptListener);
+    }
+
+    public ChannelListener.Setter<C> getCloseSetter() {
+        return new CloseListenerSettable.Setter<C>(this);
+    }
+
+    public ChannelListener<? super C> getCloseListener() {
+        return closeListener;
+    }
+
+    public void setCloseListener(final ChannelListener<? super C> listener) {
+        this.closeListener = listener;
+    }
+
+    public NativeXnioWorker getWorker() {
+        return worker;
+    }
+
+    public XnioIoThread getIoThread() {
+        return getWorker().chooseThread();
+    }
 }

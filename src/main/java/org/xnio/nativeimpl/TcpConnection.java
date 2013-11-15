@@ -1,7 +1,7 @@
 /*
  * JBoss, Home of Professional Open Source
  *
- * Copyright 2012 Red Hat, Inc. and/or its affiliates.
+ * Copyright 2013 Red Hat, Inc. and/or its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,22 +20,20 @@ package org.xnio.nativeimpl;
 
 import java.io.IOException;
 import java.util.Set;
+
 import org.xnio.Option;
 import org.xnio.Options;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-final class TcpSocketChannel extends StreamSocketChannel<TcpSocketChannel> {
+final class TcpConnection extends NativeStreamConnection {
 
-    TcpSocketChannel(final NativeXnioWorker worker, final int fd, final NativeWorkerThread readThread, final NativeWorkerThread writeThread, final NativeAcceptChannel<?> acceptChannel) throws IOException {
-        super(worker, fd, readThread, writeThread, acceptChannel);
-        Native.testAndThrow(Native.setOptTcpNoDelay(fd, true));
-        Native.testAndThrow(Native.setOptTcpCork(fd, true));
+    protected TcpConnection(final NativeWorkerThread thread, final int fd) {
+        super(thread, fd);
     }
 
     private static final Set<Option<?>> OPTIONS = Option.setBuilder()
-            .add(Options.KEEP_ALIVE)
             .add(Options.RECEIVE_BUFFER)
             .create();
 
@@ -44,35 +42,20 @@ final class TcpSocketChannel extends StreamSocketChannel<TcpSocketChannel> {
     }
 
     public <T> T getOption(final Option<T> option) throws IOException {
-        if (option == Options.KEEP_ALIVE) {
-            return getBooleanOption(option, Native.getOptKeepAlive(fd));
-        } else if (option == Options.RECEIVE_BUFFER) {
-            return getIntegerOption(option, Native.getOptReceiveBuffer(fd));
+        if (option == Options.RECEIVE_BUFFER) {
+            return option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd))));
         } else {
             return super.getOption(option);
         }
     }
 
     public <T> T setOption(final Option<T> option, final T value) throws IllegalArgumentException, IOException {
-        if (! isOpen()) {
-            // fast path
-            return null;
-        }
-        if (option == Options.KEEP_ALIVE) {
-            Native.testAndThrow(Native.setOptKeepAlive(fd, Options.KEEP_ALIVE.cast(value).booleanValue()));
-            return null;
-        } else if (option == Options.RECEIVE_BUFFER) {
+        if (option == Options.RECEIVE_BUFFER) {
+            T old = option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd))));
             Native.testAndThrow(Native.setOptReceiveBuffer(fd, Options.RECEIVE_BUFFER.cast(value).intValue()));
-            return null;
+            return old;
         } else {
             return super.setOption(option, value);
         }
-    }
-
-    public boolean flush() throws IOException {
-        Native.testAndThrow(Native.setOptTcpCork(fd, false));
-        Native.testAndThrow(Native.setOptTcpCork(fd, true));
-        Native.log.tracef("Flushed %s", this);
-        return true;
     }
 }
