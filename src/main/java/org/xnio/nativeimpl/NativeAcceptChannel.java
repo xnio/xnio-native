@@ -364,6 +364,10 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
         throw log.unsupported("awaitAcceptable");
     }
 
+    public boolean isAcceptResumed() {
+        return resumed;
+    }
+
     @Deprecated
     public XnioExecutor getAcceptThread() {
         return getIoThread();
