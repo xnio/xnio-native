@@ -105,7 +105,6 @@
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <forkMode>always</forkMode>
                     <argLine>-Djava.library.path=${basedir}/libxnio/${test.platform}</argLine>
                     <systemProperties>
                         <property>
