@@ -23,6 +23,7 @@ import java.net.SocketAddress;
 import java.net.UnknownHostException;
 
 import org.junit.After;
+import org.junit.Before;
 import org.xnio.LocalSocketAddress;
 
 /**
@@ -36,6 +37,7 @@ public final class UnixTest extends AbstractStreamSocketTest {
         return new LocalSocketAddress("/tmp/xnio-test.sock");
     }
 
+    @Before
     @After
     public void clearSocket() {
         new File(SOCK_PATH).delete();

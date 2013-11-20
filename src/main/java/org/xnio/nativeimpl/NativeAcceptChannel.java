@@ -308,7 +308,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     }
 
     public String toString() {
-        return String.format("TCP server (Native) <%s> fd=%d", Integer.toHexString(hashCode()), Integer.valueOf(fd));
+        return String.format("%s fd=%d", getClass().getName(), Integer.valueOf(fd));
     }
 
     public ChannelListener<? super C> getAcceptListener() {

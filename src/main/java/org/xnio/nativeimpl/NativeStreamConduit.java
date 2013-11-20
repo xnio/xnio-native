@@ -158,25 +158,28 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     public void resumeReads() {
         int state = this.state;
         if (allAreClear(state, READ_RESUMED)) {
+            if (Native.EXTRA_TRACE) log.tracef("Resume reads on %s", this);
             this.state = state | READ_RESUMED;
             thread.doResume(this, true, allAreSet(state, WRITE_RESUMED));
+        } else {
+            if (Native.EXTRA_TRACE) log.tracef("Reads were already resumed on %s", this);
         }
     }
 
     public void suspendReads() {
         int state = this.state;
         if (allAreSet(state, READ_RESUMED)) {
+            if (Native.EXTRA_TRACE) log.tracef("Suspend reads on %s", this);
             this.state = state & ~READ_RESUMED;
             thread.doResume(this, false, allAreSet(state, WRITE_RESUMED));
+        } else {
+            if (Native.EXTRA_TRACE) log.tracef("Reads were already suspended on %s", this);
         }
     }
 
     public void wakeupReads() {
-        int state = this.state;
-        if (allAreClear(state, READ_RESUMED)) {
-            this.state = state | READ_RESUMED;
-            thread.doResume(this, true, allAreSet(state, WRITE_RESUMED));
-        }
+        if (Native.EXTRA_TRACE) log.tracef("Wakeup reads on %s", this);
+        resumeReads();
         // todo wakeup
     }
 
@@ -302,25 +305,28 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     public void resumeWrites() {
         int state = this.state;
         if (allAreClear(state, WRITE_RESUMED)) {
+            if (Native.EXTRA_TRACE) log.tracef("Resume writes on %s", this);
             this.state = state | WRITE_RESUMED;
             thread.doResume(this, allAreSet(state, READ_RESUMED), true);
+        } else {
+            if (Native.EXTRA_TRACE) log.tracef("Writes were already resumed on %s", this);
         }
     }
 
     public void suspendWrites() {
         int state = this.state;
         if (allAreSet(state, WRITE_RESUMED)) {
+            if (Native.EXTRA_TRACE) log.tracef("Suspend writes on %s", this);
             this.state = state & ~WRITE_RESUMED;
             thread.doResume(this, allAreSet(state, READ_RESUMED), false);
+        } else {
+            if (Native.EXTRA_TRACE) log.tracef("Writes were already suspended on %s", this);
         }
     }
 
     public void wakeupWrites() {
-        int state = this.state;
-        if (allAreClear(state, WRITE_RESUMED)) {
-            this.state = state | WRITE_RESUMED;
-            thread.doResume(this, allAreSet(state, READ_RESUMED), true);
-        }
+        if (Native.EXTRA_TRACE) log.tracef("Wakeup writes on %s", this);
+        resumeWrites();
         // todo proper wakeup
     }
 
@@ -369,6 +375,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreSet(state, READ_RESUMED)) {
             final ReadReadyHandler handler = readReadyHandler;
             if (handler == null) {
+                if (Native.EXTRA_TRACE) log.tracef("Read ready but no handler on %s", this);
                 suspendReads();
             } else {
                 try {
@@ -377,6 +384,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                 }
             }
         } else {
+            if (Native.EXTRA_TRACE) log.tracef("Read ready but was not resumed on %s", this);
             suspendReads();
         }
     }
@@ -385,6 +393,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreSet(state, WRITE_RESUMED)) {
             final WriteReadyHandler handler = writeReadyHandler;
             if (handler == null) {
+                if (Native.EXTRA_TRACE) log.tracef("Write ready but no handler on %s", this);
                 suspendWrites();
             } else {
                 try {
@@ -392,6 +401,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                 } catch (Throwable ignored) {}
             }
         } else {
+            if (Native.EXTRA_TRACE) log.tracef("Write ready but was not resumed on %s", this);
             suspendWrites();
         }
     }

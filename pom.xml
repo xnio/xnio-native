@@ -39,6 +39,7 @@
         <version.org.jboss.logging.processor>1.2.0.Beta1</version.org.jboss.logging.processor>
         <test.platform>linux-x86_64</test.platform>
         <test.level>INFO</test.level>
+        <xnio.native.extra-trace>false</xnio.native.extra-trace>
     </properties>
 
     <dependencies>
@@ -114,6 +115,10 @@
                         <property>
                             <name>test.level</name>
                             <value>${test.level}</value>
+                        </property>
+                        <property>
+                            <name>xnio.native.extra-trace</name>
+                            <value>${xnio.native.extra-trace}</value>
                         </property>
                     </systemProperties>
                     <enableAssertions>true</enableAssertions>

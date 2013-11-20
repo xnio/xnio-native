@@ -179,6 +179,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                 if (Native.testAndThrowNB(Native.connect(fd, Native.encodeSocketAddress(destinationAddress))) == 0) {
                     // would block
                     final FutureResult<StreamConnection> futureResult = new FutureResult<StreamConnection>(this);
+                    final WriteReadyHandler oldHandler = conduit.getWriteReadyHandler();
                     conduit.setWriteReadyHandler(new WriteReadyHandler() {
                         public void writeReady() {
                             int res = Native.finishConnect(fd);
@@ -191,6 +192,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                                 log.tracef("Connect complete");
                                 // connect finished
                                 conduit.suspendWrites();
+                                conduit.setWriteReadyHandler(oldHandler);
                                 if (futureResult.setResult(connection)) {
                                     ChannelListeners.invokeChannelListener(connection, openListener);
                                 }

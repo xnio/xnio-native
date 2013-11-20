@@ -20,6 +20,7 @@ package org.xnio.nativeimpl.test;
 
 import java.io.IOException;
 
+import org.jboss.logging.Logger;
 import org.junit.After;
 import org.junit.Before;
 import org.xnio.OptionMap;
@@ -30,9 +31,12 @@ import org.xnio.XnioWorker;
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
 public abstract class AbstractNativeTest {
+
+    private static final Logger log = Logger.getLogger("org.xnio.native.test");
+
     static final Xnio XNIO;
     volatile XnioWorker worker;
-    final MultiWaiter multiWaiter = new MultiWaiter();
+    private final MultiWaiter multiWaiter = new MultiWaiter();
 
     static {
         XNIO = Xnio.getInstance("native");
@@ -40,6 +44,7 @@ public abstract class AbstractNativeTest {
 
     @Before
     public void createWorker() throws IOException {
+        log.trace("Test starting\n===========================================================================================================");
         final MultiWaiter.Ticket ticket = multiWaiter.register("Worker shutdown");
         worker = XNIO.createWorker(null, OptionMap.EMPTY, new Runnable() {
             public void run() {
@@ -55,5 +60,6 @@ public abstract class AbstractNativeTest {
             worker.shutdown();
             multiWaiter.await();
         }
+        log.trace("Test finished\n===========================================================================================================");
     }
 }

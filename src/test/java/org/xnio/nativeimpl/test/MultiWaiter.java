@@ -25,10 +25,15 @@ import static org.xnio.Bits.allAreSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.jboss.logging.Logger;
+
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
 public final class MultiWaiter {
+
+    private static final Logger log = Logger.getLogger("org.xnio.native.test.waiter");
+
     private final Object lock = new Object();
 
     private final String[] descriptions = new String[64];
@@ -38,8 +43,10 @@ public final class MultiWaiter {
         synchronized (lock) {
             long outstanding = this.outstanding;
             if (outstanding == 0L) {
+                log.tracef("No waiting needed");
                 return;
             }
+            log.tracef("Waiting for %d tickets", Long.bitCount(outstanding));
             long remainingTime = TimeUnit.SECONDS.toNanos(6);
             long start = System.nanoTime();
             long now;
@@ -47,6 +54,7 @@ public final class MultiWaiter {
                 lock.wait(remainingTime / 1_000_000L, (int) (remainingTime % 1_000_000L));
                 outstanding = this.outstanding;
                 if (outstanding == 0L) {
+                    log.tracef("Waiting is complete");
                     return;
                 }
                 now = System.nanoTime();
@@ -59,7 +67,9 @@ public final class MultiWaiter {
                             failureMessage.append("    ").append(descriptions[i]).append('\n');
                         }
                     }
-                    throw new IllegalStateException(failureMessage.toString());
+                    final String failureString = failureMessage.toString();
+                    log.errorf("Waiting timed out: %s", failureString);
+                    throw new IllegalStateException(failureString);
                 }
                 start = now;
             }
@@ -87,6 +97,7 @@ public final class MultiWaiter {
 
         public void complete() {
             if (! getAndSet(true)) {
+                log.tracef("Ticket " + descriptions[index] + " completed");
                 synchronized (lock) {
                     if ((outstanding &= ~(1L << index)) == 0L) {
                         lock.notifyAll();
