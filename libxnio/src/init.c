@@ -67,11 +67,11 @@ JNIEXPORT jintArray JNICALL xnio_native(init)(JNIEnv *env, jclass clazz) {
     if (! FileDescriptor_fd) {
         return 0;
     }
-    jintArray array = (*env)->NewIntArray(env, 5);
+    jintArray array = (*env)->NewIntArray(env, 6);
     if (! array) {
         return NULL;
     }
-    jint realInts[5];
+    jint realInts[6];
     realInts[0] = deadFD();
     realInts[1] = EAGAIN;
     realInts[2] = EINTR;
@@ -90,8 +90,9 @@ JNIEXPORT jintArray JNICALL xnio_native(init)(JNIEnv *env, jclass clazz) {
 #ifdef TCP_CORK
     realInts[4] |= 0x40;
 #endif
+    realInts[5] = EBADF;
 
-    (*env)->SetIntArrayRegion(env, array, 0, 5, realInts);
+    (*env)->SetIntArrayRegion(env, array, 0, 6, realInts);
     return array;
 }
 

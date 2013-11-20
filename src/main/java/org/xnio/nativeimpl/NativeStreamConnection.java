@@ -39,9 +39,13 @@ abstract class NativeStreamConnection extends StreamConnection {
     protected NativeStreamConnection(final NativeWorkerThread thread, final int fd) {
         super(thread);
         this.fd = fd;
-        this.conduit = new NativeStreamConduit(thread, fd, this);
+        this.conduit = constructConduit(thread, fd);
         setSourceConduit(conduit);
         setSinkConduit(conduit);
+    }
+
+    protected NativeStreamConduit constructConduit(final NativeWorkerThread thread, final int fd) {
+        return new NativeStreamConduit(thread, fd, this);
     }
 
     public SocketAddress getPeerAddress() {

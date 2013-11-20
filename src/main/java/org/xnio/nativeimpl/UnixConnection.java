@@ -32,6 +32,10 @@ final class UnixConnection extends NativeStreamConnection {
         super(thread, fd);
     }
 
+    protected NativeStreamConduit constructConduit(final NativeWorkerThread thread, final int fd) {
+        return new UnixStreamConduit(thread, fd, this);
+    }
+
     private static final Set<Option<?>> OPTIONS = Option.setBuilder()
             .create();
 

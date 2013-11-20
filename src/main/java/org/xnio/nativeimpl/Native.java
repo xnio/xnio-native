@@ -18,7 +18,6 @@
 
 package org.xnio.nativeimpl;
 
-import java.io.FileDescriptor;
 import java.io.IOError;
 import java.io.IOException;
 import java.net.Inet4Address;
@@ -29,6 +28,7 @@ import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ReadOnlyBufferException;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -51,6 +51,7 @@ final class Native {
     static final int DEAD_FD;
     static final int EAGAIN;
     static final int EINTR;
+    static final int EBADF;
     static final int UNIX_PATH_LEN;
 
     static final boolean HAS_EPOLL;
@@ -89,6 +90,7 @@ final class Native {
         HAS_CORK        = allAreSet(constants[4], 0b1000000);
         SAFE_GC = AccessController.doPrivileged(new BooleanPropertyAction("xnio.native.safe-gc")).booleanValue();
         EXTRA_TRACE = AccessController.doPrivileged(new BooleanPropertyAction("xnio.native.extra-trace")).booleanValue();
+        EBADF           = constants[5];
     }
 
     private Native() {}
@@ -174,9 +176,9 @@ final class Native {
         final int cnt;
         final int pos1 = buf1.position();
         if (buf1.isDirect()) {
-            cnt = testAndThrowNB(readD(fd, buf1, pos1, buf1.limit()));
+            cnt = testAndThrowRead(readD(fd, buf1, pos1, buf1.limit()));
         } else {
-            cnt = testAndThrowNB(readH(fd, buf1.array(), pos1 + buf1.arrayOffset(), buf1.limit() + buf1.arrayOffset()));
+            cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + buf1.arrayOffset(), buf1.limit() + buf1.arrayOffset()));
         }
         if (cnt > 0) {
             buf1.position(pos1 + cnt);
@@ -198,10 +200,10 @@ final class Native {
         if (len == 1) {
             final int cnt;
             if (dir1) {
-                cnt = testAndThrowNB(readD(fd, buf1, pos1, lim1));
+                cnt = testAndThrowRead(readD(fd, buf1, pos1, lim1));
             } else {
                 final int off1 = buf1.arrayOffset();
-                cnt = testAndThrowNB(readH(fd, buf1.array(), pos1 + off1, lim1 + off1));
+                cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + off1, lim1 + off1));
             }
             if (cnt > 0) {
                 buf1.position(pos1 + cnt);
@@ -218,11 +220,11 @@ final class Native {
         if (len == 2) {
             final long cnt;
             if (dir1 && dir2) {
-                cnt = testAndThrowNB(readDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
+                cnt = testAndThrowRead(readDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
             } else if (!dir1 && !dir2) {
                 final int off1 = buf1.arrayOffset();
                 final int off2 = buf2.arrayOffset();
-                cnt = testAndThrowNB(readHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
+                cnt = testAndThrowRead(readHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
             } else {
                 cnt = readMisc(fd, buffers, offs, len);
             }
@@ -246,12 +248,12 @@ final class Native {
         if (len == 3) {
             final long cnt;
             if (dir1 && dir2 && dir3) {
-                cnt = testAndThrowNB(readDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
+                cnt = testAndThrowRead(readDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
             } else if (!dir1 && !dir2 && !dir3) {
                 final int off1 = buf1.arrayOffset();
                 final int off2 = buf2.arrayOffset();
                 final int off3 = buf3.arrayOffset();
-                cnt = testAndThrowNB(readHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
+                cnt = testAndThrowRead(readHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
             } else {
                 cnt = readMisc(fd, buffers, offs, len);
             }
@@ -304,9 +306,9 @@ final class Native {
         final int cnt;
         final int pos1 = buf1.position();
         if (buf1.isDirect()) {
-            cnt = testAndThrowNB(writeD(fd, buf1, pos1, buf1.limit()));
+            cnt = testAndThrowWrite(writeD(fd, buf1, pos1, buf1.limit()));
         } else {
-            cnt = testAndThrowNB(writeH(fd, buf1.array(), pos1 + buf1.arrayOffset(), buf1.limit() + buf1.arrayOffset()));
+            cnt = testAndThrowWrite(writeH(fd, buf1.array(), pos1 + buf1.arrayOffset(), buf1.limit() + buf1.arrayOffset()));
         }
         if (cnt > 0) {
             buf1.position(pos1 + cnt);
@@ -325,10 +327,10 @@ final class Native {
         if (len == 1) {
             final int cnt;
             if (dir1) {
-                cnt = testAndThrowNB(writeD(fd, buf1, pos1, lim1));
+                cnt = testAndThrowWrite(writeD(fd, buf1, pos1, lim1));
             } else {
                 final int off1 = buf1.arrayOffset();
-                cnt = testAndThrowNB(writeH(fd, buf1.array(), pos1 + off1, lim1 + off1));
+                cnt = testAndThrowWrite(writeH(fd, buf1.array(), pos1 + off1, lim1 + off1));
             }
             if (cnt > 0) {
                 buf1.position(pos1 + cnt);
@@ -342,11 +344,11 @@ final class Native {
         if (len == 2) {
             final long cnt;
             if (dir1 && dir2) {
-                cnt = testAndThrowNB(writeDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
+                cnt = testAndThrowWrite(writeDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
             } else if (!dir1 && !dir2) {
                 final int off1 = buf1.arrayOffset();
                 final int off2 = buf2.arrayOffset();
-                cnt = testAndThrowNB(writeHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
+                cnt = testAndThrowWrite(writeHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
             } else {
                 cnt = writeMisc(fd, buffers, offs, len);
             }
@@ -367,12 +369,12 @@ final class Native {
         if (len == 3) {
             final long cnt;
             if (dir1 && dir2 && dir3) {
-                cnt = testAndThrowNB(writeDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
+                cnt = testAndThrowWrite(writeDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
             } else if (!dir1 && !dir2 && !dir3) {
                 final int off1 = buf1.arrayOffset();
                 final int off2 = buf2.arrayOffset();
                 final int off3 = buf3.arrayOffset();
-                cnt = testAndThrowNB(writeHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
+                cnt = testAndThrowWrite(writeHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
             } else {
                 cnt = writeMisc(fd, buffers, offs, len);
             }
@@ -531,22 +533,23 @@ final class Native {
         return new IOException(msg);
     }
 
-    static int testAndThrowNB(int res) throws IOException {
+    static int testAndThrowRead(int res) throws IOException {
+        return res == -EAGAIN ? 0 : res == -EBADF ? -1 : res == 0 ? -1 : testAndThrow(res);
+    }
+
+    static long testAndThrowRead(long res) throws IOException {
+        return res == -EAGAIN ? 0L : res == -EBADF ? -1L : res == 0 ? -1L : testAndThrow(res);
+    }
+
+    static int testAndThrowWrite(int res) throws IOException {
+        if (res == -EBADF || res == 0) {
+            throw new ClosedChannelException();
+        }
         return res == -EAGAIN ? 0 : testAndThrow(res);
     }
 
-    static long testAndThrowNB(long res) throws IOException {
-        return res == -EAGAIN ? 0L : testAndThrow(res);
-    }
-
-    static int testAndThrowEOF(int res) throws IOException {
-        if (res < 0) throw exceptionFor(res);
-        return res == 0 ? -1 : res;
-    }
-
-    static long testAndThrowEOF(long res) throws IOException {
-        if (res < 0) throw exceptionFor((int) res);
-        return res == 0L ? -1L : res;
+    static long testAndThrowWrite(long res) throws IOException {
+        return res == -EAGAIN ? 0L : res == -EBADF ? -1L : res == 0 ? -1L : testAndThrow(res);
     }
 
     static int testAndThrow(int res) throws IOException {
@@ -556,6 +559,12 @@ final class Native {
 
     static long testAndThrow(long res) throws IOException {
         if (res < 0) throw exceptionFor((int) res);
+        return res;
+    }
+
+    static int testAndThrowConnect(int res) throws IOException {
+        if (res == -EAGAIN) return 0;
+        if (res < 0) throw exceptionFor(res);
         return res;
     }
 

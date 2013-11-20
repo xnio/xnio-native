@@ -112,7 +112,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         target = thread.getWorker().getXnio().unwrapFileChannel(target);
         long res;
         if (Native.HAS_SPLICE && target instanceof FileChannelImpl) {
-            res = Native.testAndThrowNB(Native.spliceToFile(fd, target, position, count));
+            res = Native.testAndThrowWrite(Native.spliceToFile(fd, target, position, count));
         } else {
             res = target.transferFrom(new ConduitReadableByteChannel(this), position, count);
         }
@@ -140,6 +140,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                 }
             }
         } finally {
+            suspendReads();
             readTerminated();
         }
     }
@@ -243,7 +244,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         final long res;
         src = thread.getWorker().getXnio().unwrapFileChannel(src);
         if (Native.HAS_SENDFILE && src instanceof FileChannelImpl) {
-            res = Native.testAndThrowNB(Native.sendfile(fd, src, position, count));
+            res = Native.testAndThrowRead(Native.sendfile(fd, src, position, count));
         } else {
             res = src.transferTo(position, count, new ConduitWritableByteChannel(this));
         }
@@ -255,7 +256,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         final long res;
         checkWriteTimeout(false);
         if (Native.HAS_SPLICE && source instanceof NativeDescriptor) {
-            res = Native.testAndThrowNB(Native.transfer(((NativeDescriptor) source).fd, count, throughBuffer, fd));
+            res = Native.testAndThrowRead(Native.transfer(((NativeDescriptor) source).fd, count, throughBuffer, fd));
         } else {
             res = Conduits.transfer(source, count, throughBuffer, this);
         }
@@ -283,6 +284,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                 }
             }
         } finally {
+            suspendWrites();
             writeTerminated();
         }
     }

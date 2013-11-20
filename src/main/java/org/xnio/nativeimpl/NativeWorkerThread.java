@@ -176,7 +176,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                 final NativeStreamConnection connection = destinationAddress instanceof LocalSocketAddress ? new UnixConnection(this, fd) : new TcpConnection(this, fd);
                 final NativeStreamConduit conduit = connection.getConduit();
                 register(conduit);
-                if (Native.testAndThrowNB(Native.connect(fd, Native.encodeSocketAddress(destinationAddress))) == 0) {
+                if (Native.testAndThrowConnect(Native.connect(fd, Native.encodeSocketAddress(destinationAddress))) == 0) {
                     // would block
                     final FutureResult<StreamConnection> futureResult = new FutureResult<StreamConnection>(this);
                     final WriteReadyHandler oldHandler = conduit.getWriteReadyHandler();
