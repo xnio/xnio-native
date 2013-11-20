@@ -214,9 +214,6 @@ final class EPollWorkerThread extends NativeWorkerThread {
         epollLog.tracef("Resuming read=%s write=%s on %d", read, write, fd);
         try {
             Native.testAndThrow(Native.epollCtlMod(epfd, fd, (read ? Native.EPOLL_FLAG_READ : 0) | (write ? Native.EPOLL_FLAG_WRITE : 0) | Native.EPOLL_FLAG_EDGE, id));
-            if ((read || write) && Thread.currentThread() != this) {
-                doWakeup();
-            }
         } catch (IOException e) {
             epollLog.warnf(e, "Resume failed on FD %d (%s, %s)", fd, read, write);
         }
