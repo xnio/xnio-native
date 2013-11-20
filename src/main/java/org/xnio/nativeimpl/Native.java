@@ -62,6 +62,7 @@ final class Native {
     static final boolean HAS_CORK;
 
     static final boolean SAFE_GC;
+    static final boolean EXTRA_TRACE;
 
     static {
         try {
@@ -86,11 +87,8 @@ final class Native {
         HAS_SPLICE      = allAreSet(constants[4], 0b0010000);
         HAS_SENDFILE    = allAreSet(constants[4], 0b0100000);
         HAS_CORK        = allAreSet(constants[4], 0b1000000);
-        SAFE_GC = AccessController.doPrivileged(new PrivilegedAction<Boolean>() {
-            public Boolean run() {
-                return Boolean.valueOf(System.getProperty("xnio.native.safe-gc", "false"));
-            }
-        }).booleanValue();
+        SAFE_GC = AccessController.doPrivileged(new BooleanPropertyAction("xnio.native.safe-gc")).booleanValue();
+        EXTRA_TRACE = AccessController.doPrivileged(new BooleanPropertyAction("xnio.native.extra-trace")).booleanValue();
     }
 
     private Native() {}
@@ -695,6 +693,19 @@ final class Native {
             return true;
         } catch (ArrayIndexOutOfBoundsException e) {
             return false;
+        }
+    }
+
+    static class BooleanPropertyAction implements PrivilegedAction<Boolean> {
+
+        private final String key;
+
+        BooleanPropertyAction(final String key) {
+            this.key = key;
+        }
+
+        public Boolean run() {
+            return Boolean.valueOf(System.getProperty(key, "false"));
         }
     }
 }
