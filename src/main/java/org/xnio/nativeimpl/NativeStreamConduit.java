@@ -133,7 +133,11 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
             int state = this.state;
             if (allAreClear(state, READ_SHUTDOWN)) {
                 this.state = state | READ_SHUTDOWN;
-                Native.testAndThrow(Native.shutdown(fd, true, false));
+                if (allAreSet(state, WRITE_SHUTDOWN)) {
+                    terminate();
+                } else {
+                    Native.testAndThrow(Native.shutdown(fd, true, false));
+                }
             }
         } finally {
             readTerminated();
@@ -265,10 +269,18 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public void terminateWrites() throws IOException {
-        int state = this.state;
-        if (allAreClear(state, WRITE_SHUTDOWN)) {
-            this.state = state | WRITE_SHUTDOWN;
-            Native.testAndThrow(Native.shutdown(fd, false, true));
+        if (connection.writeClosed()) try {
+            int state = this.state;
+            if (allAreClear(state, WRITE_SHUTDOWN)) {
+                this.state = state | WRITE_SHUTDOWN;
+                if (allAreSet(state, READ_SHUTDOWN)) {
+                    terminate();
+                } else {
+                    Native.testAndThrow(Native.shutdown(fd, false, true));
+                }
+            }
+        } finally {
+            writeTerminated();
         }
     }
 
