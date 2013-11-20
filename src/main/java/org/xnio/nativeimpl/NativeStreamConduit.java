@@ -152,12 +152,28 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public void resumeReads() {
+        int state = this.state;
+        if (allAreClear(state, READ_RESUMED)) {
+            this.state = state | READ_RESUMED;
+            thread.doResume(this, true, allAreSet(state, WRITE_RESUMED));
+        }
     }
 
     public void suspendReads() {
+        int state = this.state;
+        if (allAreSet(state, READ_RESUMED)) {
+            this.state = state & ~READ_RESUMED;
+            thread.doResume(this, false, allAreSet(state, WRITE_RESUMED));
+        }
     }
 
     public void wakeupReads() {
+        int state = this.state;
+        if (allAreClear(state, READ_RESUMED)) {
+            this.state = state | READ_RESUMED;
+            thread.doResume(this, true, allAreSet(state, WRITE_RESUMED));
+        }
+        // todo wakeup
     }
 
     public boolean isReadResumed() {
@@ -272,12 +288,28 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public void resumeWrites() {
+        int state = this.state;
+        if (allAreClear(state, WRITE_RESUMED)) {
+            this.state = state | WRITE_RESUMED;
+            thread.doResume(this, allAreSet(state, READ_RESUMED), true);
+        }
     }
 
     public void suspendWrites() {
+        int state = this.state;
+        if (allAreSet(state, WRITE_RESUMED)) {
+            this.state = state & ~WRITE_RESUMED;
+            thread.doResume(this, allAreSet(state, READ_RESUMED), false);
+        }
     }
 
     public void wakeupWrites() {
+        int state = this.state;
+        if (allAreClear(state, WRITE_RESUMED)) {
+            this.state = state | WRITE_RESUMED;
+            thread.doResume(this, allAreSet(state, READ_RESUMED), true);
+        }
+        // todo proper wakeup
     }
 
     public boolean isWriteResumed() {
@@ -332,6 +364,8 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                 } catch (Throwable ignored) {
                 }
             }
+        } else {
+            suspendReads();
         }
     }
 
@@ -345,6 +379,16 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                     handler.writeReady();
                 } catch (Throwable ignored) {}
             }
+        } else {
+            suspendWrites();
+        }
+    }
+
+    void terminate() throws IOException {
+        int state = this.state;
+        if (anyAreClear(state, WRITE_SHUTDOWN | READ_SHUTDOWN)) {
+            this.state = state | WRITE_SHUTDOWN | READ_SHUTDOWN;
+            Native.testAndThrow(Native.shutdown(fd, allAreClear(state, READ_SHUTDOWN), allAreClear(state, WRITE_SHUTDOWN)));
         }
     }
 }

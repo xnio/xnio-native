@@ -136,7 +136,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                 };
                 register(listener);
                 try {
-                    doResume(fd, true, false);
+                    doResume(listener, true, false);
                     ok = true;
                 } finally {
                     if (! ok) {
@@ -171,7 +171,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
         }
         boolean ok = false;
         try {
-            final int fd = streamSocket(bindAddress);
+            final int fd = streamSocket(destinationAddress);
             try {
                 final NativeStreamConnection connection = destinationAddress instanceof LocalSocketAddress ? new UnixConnection(this, fd) : new TcpConnection(this, fd);
                 final NativeStreamConduit conduit = connection.getConduit();
@@ -183,10 +183,12 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                         public void writeReady() {
                             int res = Native.finishConnect(fd);
                             if (res == -Native.EAGAIN) {
+                                log.tracef("Connect incomplete");
                                 // try again
                                 return;
                             }
                             if (res == 0) {
+                                log.tracef("Connect complete");
                                 // connect finished
                                 conduit.suspendWrites();
                                 if (futureResult.setResult(connection)) {
@@ -335,7 +337,11 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
 
     abstract void register(NativeDescriptor channel) throws IOException;
 
-    abstract void doResume(int fd, boolean read, boolean write);
+    abstract void doResume(NativeDescriptor channel, boolean read, boolean write);
 
     abstract void unregister(final NativeDescriptor channel);
+
+    public String toString() {
+        return String.format("Thread %s (number %d)", getName(), Integer.valueOf(getNumber()));
+    }
 }

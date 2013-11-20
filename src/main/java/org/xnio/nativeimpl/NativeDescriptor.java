@@ -59,4 +59,8 @@ abstract class NativeDescriptor {
     protected abstract void handleReadReady();
 
     protected abstract void handleWriteReady();
+
+    public String toString() {
+        return getClass().getName() + " id=" + id + " fd=" + fd;
+    }
 }

@@ -115,4 +115,12 @@ abstract class NativeStreamConnection extends StreamConnection {
     protected void notifyReadClosed() {
         conduit.readTerminated();
     }
+
+    protected void closeAction() throws IOException {
+        conduit.terminate();
+    }
+
+    public String toString() {
+        return String.format("%s fd=%d id=%d", getClass().getName(), fd, conduit.id);
+    }
 }

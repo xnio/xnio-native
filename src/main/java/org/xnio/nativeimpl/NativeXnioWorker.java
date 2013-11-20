@@ -23,6 +23,7 @@ import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -154,12 +155,14 @@ final class NativeXnioWorker extends XnioWorker {
             throw new IllegalArgumentException("Unknown address format");
         }
         Native.testAndThrow(fd);
+        Native.testAndThrow(Native.setOptReuseAddr(fd, optionMap.get(Options.REUSE_ADDRESSES, true)));
         boolean ok = false;
         try {
             Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress)));
             final TcpServer server = new TcpServer(this, fd, optionMap);
-            server.setAcceptListener(acceptListener);
             Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128)));
+            server.setAcceptListener(acceptListener);
+            server.register();
             ok = true;
             return server;
         } finally {
@@ -177,8 +180,9 @@ final class NativeXnioWorker extends XnioWorker {
         try {
             Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress)));
             final UnixServer server = new UnixServer(this, fd, optionMap);
-            server.setAcceptListener(acceptListener);
             Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128)));
+            server.setAcceptListener(acceptListener);
+            server.register();
             ok = true;
             return server;
         } finally {

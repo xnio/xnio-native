@@ -50,7 +50,6 @@ final class AcceptChannelHandle extends NativeDescriptor {
     }
 
     protected void handleWriteReady() {
-        throw new IllegalStateException();
     }
 
     Runnable getFreeTask() {
@@ -60,7 +59,7 @@ final class AcceptChannelHandle extends NativeDescriptor {
     void resume() {
         final NativeWorkerThread thread = this.thread;
         if (thread == currentThread()) {
-            if (! stopped && server.resumed) thread.doResume(fd, true, false);
+            if (! stopped && server.resumed) thread.doResume(this, true, false);
         } else {
             thread.execute(new Runnable() {
                 public void run() {
@@ -73,7 +72,7 @@ final class AcceptChannelHandle extends NativeDescriptor {
     void suspend() {
         final NativeWorkerThread thread = this.thread;
         if (thread == currentThread()) {
-            if (! stopped && ! server.resumed) thread.doResume(fd, false, false);
+            if (! stopped && ! server.resumed) thread.doResume(this, false, false);
         } else {
             thread.execute(new Runnable() {
                 public void run() {
@@ -97,7 +96,7 @@ final class AcceptChannelHandle extends NativeDescriptor {
         if (count-- <= low && tokenCount != 0 && stopped) {
             stopped = false;
             if (server.resumed) {
-                thread.doResume(fd, true, false);
+                thread.doResume(this, true, false);
             }
         }
     }
@@ -110,7 +109,7 @@ final class AcceptChannelHandle extends NativeDescriptor {
                 if (count <= low && stopped) {
                     stopped = false;
                     if (server.resumed) {
-                        thread.doResume(fd, true, false);
+                        thread.doResume(this, true, false);
                     }
                 }
                 return;
@@ -136,7 +135,7 @@ final class AcceptChannelHandle extends NativeDescriptor {
             tokenCount = newCount;
             if (newCount == 0) {
                 stopped = true;
-                thread.doResume(fd, false, false);
+                thread.doResume(this, false, false);
             }
         } else {
             workerThread.execute(new Runnable() {
@@ -157,7 +156,7 @@ final class AcceptChannelHandle extends NativeDescriptor {
         }
         if (++count >= high || tokenCount == 0) {
             stopped = true;
-            thread.doResume(fd, false, false);
+            thread.doResume(this, false, false);
         }
         return true;
     }

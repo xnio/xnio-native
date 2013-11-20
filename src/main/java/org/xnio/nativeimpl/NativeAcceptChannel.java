@@ -132,13 +132,18 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
         for (int i = 0; i < threadCount; i++) {
             AcceptChannelHandle handle = new AcceptChannelHandle(this, fd, threads[i], i < perThreadHighRem ? perThreadHigh + 1 : perThreadHigh, i < perThreadLowRem ? perThreadLow + 1 : perThreadLow);
             handles[i] = handle;
-            threads[i].register(handle);
         }
         this.handles = handles;
         if (tokens > 0) {
             for (int i = 0; i < threadCount; i ++) {
                 handles[i].initializeTokenCount(i < tokens ? connections : 0);
             }
+        }
+    }
+
+    void register() throws IOException {
+        for (AcceptChannelHandle handle : handles) {
+            handle.thread.register(handle);
         }
     }
 
@@ -151,6 +156,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     }
 
     public void close() throws IOException {
+        // todo only do once
         for (AcceptChannelHandle handle : handles) {
             handle.unregister();
         }
@@ -271,6 +277,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
         final NativeWorkerThread current = NativeWorkerThread.getCurrent();
         final AcceptChannelHandle handle = handles[current.getNumber()];
         if (! handle.getConnection()) {
+            log.tracef("Connections full on %s", this);
             return null;
         }
         final int accepted = Native.accept(fd);
@@ -280,17 +287,19 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
                 return null;
             }
             Native.testAndThrow(accepted);
+            Native.testAndThrow(Native.finishConnect(accepted));
             try {
                 final NativeStreamConnection newConnection = constructConnection(accepted, current);
                 newConnection.setOption(Options.READ_TIMEOUT, Integer.valueOf(readTimeout));
                 newConnection.setOption(Options.WRITE_TIMEOUT, Integer.valueOf(writeTimeout));
+                current.register(newConnection.conduit);
                 ok = true;
                 return newConnection;
             } finally {
                 if (! ok) Native.close(accepted);
             }
         } catch (IOException e) {
-            return null;
+            throw e;
         } finally {
             if (! ok) {
                 handle.freeConnection();
@@ -299,7 +308,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     }
 
     public String toString() {
-        return String.format("TCP server (NIO) <%s>", Integer.toHexString(hashCode()));
+        return String.format("TCP server (Native) <%s> fd=%d", Integer.toHexString(hashCode()), Integer.valueOf(fd));
     }
 
     public ChannelListener<? super C> getAcceptListener() {
@@ -340,7 +349,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
 
     private void doResume(final boolean resumed) {
         for (AcceptChannelHandle handle : handles) {
-            handle.thread.doResume(handle.fd, resumed, false);
+            handle.thread.doResume(handle, resumed, false);
         }
     }
 

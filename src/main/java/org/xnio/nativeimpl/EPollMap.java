@@ -313,10 +313,12 @@ final class EPollMap extends AbstractCollection<EPollRegistration> {
             final int rowLen = row.length;
             for (int j = 0; j < rowLen; j++) {
                 final EPollRegistration item = row[j];
-                if (allAreSet(item.id, oldLen)) {
-                    row[j] = null;
-                } else {
-                    newRow[j] = null;
+                if (item != null) {
+                    if (allAreSet(item.id, oldLen)) {
+                        row[j] = null;
+                    } else {
+                        newRow[j] = null;
+                    }
                 }
             }
         }
@@ -329,7 +331,7 @@ final class EPollMap extends AbstractCollection<EPollRegistration> {
         int idx = key & (table.length - 1);
         final EPollRegistration[] row = table[idx];
         if (row != null) for (EPollRegistration item : row) {
-            if (key == item.id) {
+            if (item != null && key == item.id) {
                 return item;
             }
         }

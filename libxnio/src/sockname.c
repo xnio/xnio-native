@@ -26,13 +26,15 @@ jbyteArray convert(JNIEnv *env, union sockaddr_any *addr) {
         }
         case AF_INET6: {
             type = 1;
-            result = (*env)->NewByteArray(env, 19);
+            result = (*env)->NewByteArray(env, 23);
             if (result == NULL) {
                 return 0;
             }
             (*env)->SetByteArrayRegion(env, result, 0, 1, &type);
             (*env)->SetByteArrayRegion(env, result, 1, 16, (jbyte *)&addr->addr_in6.sin6_addr);
             (*env)->SetByteArrayRegion(env, result, 17, 2, (jbyte *)&addr->addr_in6.sin6_port);
+            uint32_t scope = htonl(addr->addr_in6.sin6_scope_id);
+            (*env)->SetByteArrayRegion(env, result, 19, 4, (jbyte *)&scope);
             break;
         }
         case AF_UNIX: {
@@ -73,6 +75,8 @@ void convert2(JNIEnv *env, union sockaddr_any *addr, jbyteArray result) {
             (*env)->SetByteArrayRegion(env, result, 0, 1, &type);
             (*env)->SetByteArrayRegion(env, result, 1, 16, (jbyte *)&addr->addr_in6.sin6_addr);
             (*env)->SetByteArrayRegion(env, result, 17, 2, (jbyte *)&addr->addr_in6.sin6_port);
+            uint32_t scope = htonl(addr->addr_in6.sin6_scope_id);
+            (*env)->SetByteArrayRegion(env, result, 19, 4, (jbyte *)&scope);
             break;
         }
         case AF_UNIX: {
@@ -102,18 +106,23 @@ jint decode(JNIEnv *env, jbyteArray src, union sockaddr_any *dest) {
             dest->addr_in.sin_family = AF_INET;
             memcpy(&dest->addr_in.sin_addr, bytes + 1, 4);
             memcpy(&dest->addr_in.sin_port, bytes + 5, 2);
+            (*env)->ReleasePrimitiveArrayCritical(env, src, bytes, JNI_ABORT);
             return 0;
         case 1: // ipv6
             dest->addr_in6.sin6_family = AF_INET6;
             memcpy(&dest->addr_in6.sin6_addr, bytes + 1, 16);
             memcpy(&dest->addr_in6.sin6_port, bytes + 17, 2);
             memcpy(&dest->addr_in6.sin6_scope_id, bytes + 19, 4);
+            dest->addr_in6.sin6_scope_id = ntohl(dest->addr_in6.sin6_scope_id);
+            (*env)->ReleasePrimitiveArrayCritical(env, src, bytes, JNI_ABORT);
             return 0;
         case 2: // unix
             dest->addr_un.sun_family = AF_UNIX;
             memcpy(&dest->addr_un.sun_path, bytes + 1, sizeof dest->addr_un.sun_path);
+            (*env)->ReleasePrimitiveArrayCritical(env, src, bytes, JNI_ABORT);
             return 0;
         default:
+            (*env)->ReleasePrimitiveArrayCritical(env, src, bytes, JNI_ABORT);
             return -EINVAL;
     }
 }

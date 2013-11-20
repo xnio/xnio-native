@@ -16,31 +16,28 @@
  * limitations under the License.
  */
 
-package org.xnio.nativeimpl;
+package org.xnio.nativeimpl.test;
 
+import java.io.File;
+import java.net.SocketAddress;
+import java.net.UnknownHostException;
 
-import org.xnio.AutomaticReference;
+import org.junit.After;
+import org.xnio.LocalSocketAddress;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-final class FdRef<T> extends AutomaticReference<T> {
+public final class UnixTest extends AbstractStreamSocketTest {
 
-    private static final Object PERMIT = AutomaticReference.getPermit();
+    private static final String SOCK_PATH = "/tmp/xnio-test.sock";
 
-    final int fd;
-
-    FdRef(final T referent, final int fd) {
-        super(referent, PERMIT);
-        this.fd = fd;
+    protected SocketAddress getServerAddress() throws UnknownHostException {
+        return new LocalSocketAddress("/tmp/xnio-test.sock");
     }
 
-    protected void free() {
-        Log.log.tracef("Freeing %s", this);
-        Native.close(fd);
-    }
-
-    public String toString() {
-        return "file descriptor " + fd;
+    @After
+    public void clearSocket() {
+        new File(SOCK_PATH).delete();
     }
 }

@@ -60,7 +60,12 @@ final class Native {
     static final boolean HAS_CORK;
 
     static {
-        System.loadLibrary("xnio");
+        try {
+            System.loadLibrary("xnio");
+        } catch (Error error) {
+            log.errorf("Failed to load XNIO from [%s]: %s", System.getProperty("java.library.path"), error);
+            throw error;
+        }
         final int[] constants = init();
         try {
             DEAD_FD = testAndThrow(constants[0]);
@@ -500,7 +505,7 @@ final class Native {
 
     static native int epollCtlAdd(final int efd, final int fd, final int flags, final int id);
 
-    static native int epollCtlMod(final int efd, final int fd, final int flags);
+    static native int epollCtlMod(final int efd, final int fd, final int flags, final int id);
 
     static native int epollCtlDel(final int efd, final int fd);
 
@@ -527,14 +532,24 @@ final class Native {
         return res == -EAGAIN ? 0L : testAndThrow(res);
     }
 
-    static int testAndThrow(int res) throws IOException {
+    static int testAndThrowEOF(int res) throws IOException {
         if (res < 0) throw exceptionFor(res);
         return res == 0 ? -1 : res;
     }
 
-    static long testAndThrow(long res) throws IOException {
+    static long testAndThrowEOF(long res) throws IOException {
         if (res < 0) throw exceptionFor((int) res);
         return res == 0L ? -1L : res;
+    }
+
+    static int testAndThrow(int res) throws IOException {
+        if (res < 0) throw exceptionFor(res);
+        return res;
+    }
+
+    static long testAndThrow(long res) throws IOException {
+        if (res < 0) throw exceptionFor((int) res);
+        return res;
     }
 
     @SuppressWarnings({ "deprecation" })
@@ -615,17 +630,20 @@ final class Native {
                 return INVALID_ADDR;
             }
         } else if (src instanceof LocalSocketAddress) {
-            final LocalSocketAddress local = (LocalSocketAddress) src;
-            final String name = local.getName();
-            final byte[] result = new byte[2 + UNIX_PATH_LEN];
-            result[0] = 2;
-            if (! encodeTo(name, result, 1)) {
-                return INVALID_ADDR;
-            }
-            return result;
+            return encodeSocketAddress((LocalSocketAddress) src);
         } else {
             return INVALID_ADDR;
         }
+    }
+
+    static byte[] encodeSocketAddress(LocalSocketAddress local) {
+        final String name = local.getName();
+        final byte[] result = new byte[2 + UNIX_PATH_LEN];
+        result[0] = 2;
+        if (! encodeTo(name, result, 1)) {
+            return INVALID_ADDR;
+        }
+        return result;
     }
 
     static boolean encodeTo(String src, byte[] dest, int offs) {

@@ -12,7 +12,16 @@ JNIEXPORT jint JNICALL xnio_native(connect)(JNIEnv *env, jclass clazz, jint fd, 
     if (res < 0) {
         return res;
     }
-    res = connect(fd, &addr.addr, sizeof addr);
+    switch (addr.addr.sa_family) {
+        case AF_UNIX: {
+            res = connect(fd, &addr.addr, sizeof(struct sockaddr_un));
+            break;
+        }
+        default: {
+            res = connect(fd, &addr.addr, sizeof addr);
+            break;
+        }
+    }
     if (res < 0) {
         int e = errno;
         if (e == EAGAIN) {

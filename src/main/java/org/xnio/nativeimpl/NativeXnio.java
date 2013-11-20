@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import org.jboss.logging.Logger;
 import org.xnio.OptionMap;
-import org.xnio.Version;
 import org.xnio.Xnio;
 import org.xnio.XnioWorker;
 
@@ -32,7 +31,7 @@ import org.xnio.XnioWorker;
 final class NativeXnio extends Xnio {
 
     static {
-        Logger.getLogger("org.xnio.native").infof("XNIO Native Implementation Version %s", Version.VERSION);
+        Logger.getLogger("org.xnio.native").infof("XNIO Native Implementation version %s", Version.getVersionString());
     }
 
     public NativeXnio() {
@@ -40,7 +39,9 @@ final class NativeXnio extends Xnio {
     }
 
     public XnioWorker createWorker(final ThreadGroup threadGroup, final OptionMap optionMap, final Runnable terminationTask) throws IOException, IllegalArgumentException {
-        return new NativeXnioWorker(this, threadGroup, optionMap, terminationTask);
+        final NativeXnioWorker worker = new NativeXnioWorker(this, threadGroup, optionMap, terminationTask);
+        worker.start();
+        return worker;
     }
 
     protected FileChannel unwrapFileChannel(final FileChannel src) {

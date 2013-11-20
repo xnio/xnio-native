@@ -16,31 +16,19 @@
  * limitations under the License.
  */
 
-package org.xnio.nativeimpl;
+package org.xnio.nativeimpl.test;
 
-
-import org.xnio.AutomaticReference;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.net.UnknownHostException;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
-final class FdRef<T> extends AutomaticReference<T> {
+public final class Tcp6Test extends AbstractStreamSocketTest {
 
-    private static final Object PERMIT = AutomaticReference.getPermit();
-
-    final int fd;
-
-    FdRef(final T referent, final int fd) {
-        super(referent, PERMIT);
-        this.fd = fd;
-    }
-
-    protected void free() {
-        Log.log.tracef("Freeing %s", this);
-        Native.close(fd);
-    }
-
-    public String toString() {
-        return "file descriptor " + fd;
+    protected SocketAddress getServerAddress() throws UnknownHostException {
+        return new InetSocketAddress(InetAddress.getByName("::"), 40029);
     }
 }

@@ -52,6 +52,9 @@ JNIEXPORT jint JNICALL xnio_native(epollWait)(JNIEnv *env, jclass clazz, jint ef
     if (res < 0) {
         return -errno;
     }
+    if (res == 0) {
+        return 0;
+    }
     jlong *items = (*env)->GetLongArrayElements(env, eventArray, 0);
     if (! items) {
         return -ENOMEM;

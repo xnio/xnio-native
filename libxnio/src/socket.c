@@ -87,10 +87,10 @@ JNIEXPORT jint JNICALL xnio_native(socketUdp6)(JNIEnv *env, jclass clazz) {
 }
 
 JNIEXPORT jint JNICALL xnio_native(socketLocalStream)(JNIEnv *env, jclass clazz) {
-    return create_socket(AF_LOCAL, SOCK_STREAM);
+    return create_socket(AF_UNIX, SOCK_STREAM);
 }
 
 JNIEXPORT jint JNICALL xnio_native(socketLocalDatagram)(JNIEnv *env, jclass clazz) {
-    return create_socket(AF_LOCAL, SOCK_DGRAM);
+    return create_socket(AF_UNIX, SOCK_DGRAM);
 }
 
