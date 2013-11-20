@@ -388,7 +388,14 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         int state = this.state;
         if (anyAreClear(state, WRITE_SHUTDOWN | READ_SHUTDOWN)) {
             this.state = state | WRITE_SHUTDOWN | READ_SHUTDOWN;
-            Native.testAndThrow(Native.shutdown(fd, allAreClear(state, READ_SHUTDOWN), allAreClear(state, WRITE_SHUTDOWN)));
+        }
+        if (Native.SAFE_GC) try {
+            Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
+        } finally {
+            new FdRef<>(this, fd);
+        } else {
+            // hope for the best
+            Native.testAndThrow(Native.close(fd));
         }
     }
 }

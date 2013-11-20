@@ -30,6 +30,8 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ReadOnlyBufferException;
 import java.nio.channels.FileChannel;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Arrays;
 import org.jboss.logging.Logger;
 import org.xnio.Buffers;
@@ -59,6 +61,8 @@ final class Native {
     static final boolean HAS_SENDFILE;
     static final boolean HAS_CORK;
 
+    static final boolean SAFE_GC;
+
     static {
         try {
             System.loadLibrary("xnio");
@@ -82,6 +86,11 @@ final class Native {
         HAS_SPLICE      = allAreSet(constants[4], 0b0010000);
         HAS_SENDFILE    = allAreSet(constants[4], 0b0100000);
         HAS_CORK        = allAreSet(constants[4], 0b1000000);
+        SAFE_GC = AccessController.doPrivileged(new PrivilegedAction<Boolean>() {
+            public Boolean run() {
+                return Boolean.valueOf(System.getProperty("xnio.native.safe-gc", "false"));
+            }
+        }).booleanValue();
     }
 
     private Native() {}
