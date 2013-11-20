@@ -308,16 +308,18 @@ final class EPollMap extends AbstractCollection<EPollRegistration> {
         final EPollRegistration[][] newTable = Arrays.copyOf(oldTable, oldLen << 1);
         for (int i = 0; i < oldLen; i++) {
             EPollRegistration[] row = newTable[i];
-            EPollRegistration[] newRow = row.clone();
-            newTable[i + oldLen] = newRow;
-            final int rowLen = row.length;
-            for (int j = 0; j < rowLen; j++) {
-                final EPollRegistration item = row[j];
-                if (item != null) {
-                    if (allAreSet(item.id, oldLen)) {
-                        row[j] = null;
-                    } else {
-                        newRow[j] = null;
+            if (row != null) {
+                EPollRegistration[] newRow = row.clone();
+                newTable[i + oldLen] = newRow;
+                final int rowLen = row.length;
+                for (int j = 0; j < rowLen; j++) {
+                    final EPollRegistration item = row[j];
+                    if (item != null) {
+                        if (allAreSet(item.id, oldLen)) {
+                            row[j] = null;
+                        } else {
+                            newRow[j] = null;
+                        }
                     }
                 }
             }
