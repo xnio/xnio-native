@@ -121,7 +121,11 @@ public abstract class AbstractStreamSocketTest extends AbstractNativeTest {
             safeClose(serverConnection.get());
             safeClose(clientConnection.get());
             safeClose(server);
+            cleanup();
         }
+    }
+
+    protected void cleanup() {
     }
 
     @Test
@@ -129,7 +133,7 @@ public abstract class AbstractStreamSocketTest extends AbstractNativeTest {
         establishTest(new MultiWaiter(), null);
     }
 
-    protected void transferTest(final BufferAllocator<ByteBuffer> allocator) throws Throwable {
+    protected void transferTest(final BufferAllocator<ByteBuffer> allocator, final boolean reverse) throws Throwable {
         establishTest(new MultiWaiter(), new EstablishTestListener() {
             public void doTest(final TestContext ctxt, final MultiWaiter waiter, final StreamConnection serverConnection, final StreamConnection clientConnection) throws Throwable {
                 final ByteBuffer buffer1 = allocator.allocate(8192);
@@ -138,7 +142,7 @@ public abstract class AbstractStreamSocketTest extends AbstractNativeTest {
                 final MultiWaiter.Ticket readTicket = waiter.register("Channel read");
                 Buffers.fill(buffer1, 0xEE, buffer1.remaining());
                 buffer1.flip();
-                final ConduitStreamSinkChannel sinkChannel = clientConnection.getSinkChannel();
+                final ConduitStreamSinkChannel sinkChannel = reverse ? serverConnection.getSinkChannel() : clientConnection.getSinkChannel();
                 sinkChannel.setWriteListener(new ChannelListener<ConduitStreamSinkChannel>() {
                     public void handleEvent(final ConduitStreamSinkChannel channel) {
                         try {
@@ -155,7 +159,7 @@ public abstract class AbstractStreamSocketTest extends AbstractNativeTest {
                         }
                     }
                 });
-                final ConduitStreamSourceChannel sourceChannel = serverConnection.getSourceChannel();
+                final ConduitStreamSourceChannel sourceChannel = reverse ? clientConnection.getSourceChannel() : serverConnection.getSourceChannel();
                 sourceChannel.setReadListener(new ChannelListener<ConduitStreamSourceChannel>() {
                     public void handleEvent(final ConduitStreamSourceChannel channel) {
                         if (! buffer2.hasRemaining()) {
@@ -197,11 +201,13 @@ public abstract class AbstractStreamSocketTest extends AbstractNativeTest {
 
     @Test
     public void testTransferDirect() throws Throwable {
-        transferTest(BufferAllocator.DIRECT_BYTE_BUFFER_ALLOCATOR);
+        transferTest(BufferAllocator.DIRECT_BYTE_BUFFER_ALLOCATOR, false);
+        transferTest(BufferAllocator.DIRECT_BYTE_BUFFER_ALLOCATOR, true);
     }
 
     @Test
     public void testTransferHeap() throws Throwable {
-        transferTest(BufferAllocator.BYTE_BUFFER_ALLOCATOR);
+        transferTest(BufferAllocator.BYTE_BUFFER_ALLOCATOR, false);
+        transferTest(BufferAllocator.BYTE_BUFFER_ALLOCATOR, true);
     }
 }

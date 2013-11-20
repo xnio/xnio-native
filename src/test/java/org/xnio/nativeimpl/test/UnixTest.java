@@ -39,7 +39,7 @@ public final class UnixTest extends AbstractStreamSocketTest {
 
     @Before
     @After
-    public void clearSocket() {
+    public void cleanup() {
         new File(SOCK_PATH).delete();
     }
 }
