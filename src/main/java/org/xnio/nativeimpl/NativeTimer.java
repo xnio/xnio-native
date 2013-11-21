@@ -18,7 +18,6 @@
 
 package org.xnio.nativeimpl;
 
-import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.xnio.XnioExecutor;
@@ -28,42 +27,38 @@ import org.xnio.XnioExecutor;
  */
 final class NativeTimer extends NativeDescriptor implements XnioExecutor.Key {
     private final Runnable task;
+    private final boolean oneShot;
     // todo if this works use something better than this
     private final AtomicBoolean canRun = new AtomicBoolean(true);
 
-    NativeTimer(final NativeWorkerThread thread, final int fd, final Runnable task) {
+    NativeTimer(final NativeWorkerThread thread, final int fd, final Runnable task, final boolean oneShot) {
         super(thread, fd);
         this.task = task;
+        this.oneShot = oneShot;
     }
 
     public boolean remove() {
         if (canRun.getAndSet(false)) {
-            thread.execute(new Runnable() {
-                public void run() {
-                    unregister();
-                    try {
-                        close();
-                    } catch (IOException ignored) {
-                    }
-                }
-            });
-            return false;
-        } else {
+            unregister();
+            Native.close(fd);
             return true;
+        } else {
+            return false;
         }
     }
 
     protected void handleReadReady() {
-        if (canRun.getAndSet(false)) {
-            unregister();
-            try {
-                close();
-            } catch (IOException ignored) {
+        if (oneShot) {
+            if (canRun.getAndSet(false)) {
+                unregister();
+                Native.close(fd);
             }
-            try {
-                task.run();
-            } catch (Throwable ignored) {
-            }
+        } else if (! canRun.get()) {
+            return;
+        }
+        try {
+            task.run();
+        } catch (Throwable ignored) {
         }
     }
 

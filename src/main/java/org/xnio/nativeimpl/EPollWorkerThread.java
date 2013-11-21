@@ -26,6 +26,8 @@ import java.util.concurrent.TimeUnit;
 import static org.xnio.Bits.*;
 import static org.xnio.nativeimpl.Log.epollLog;
 
+import org.xnio.XnioExecutor;
+
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
@@ -154,24 +156,35 @@ final class EPollWorkerThread extends NativeWorkerThread {
         }
         boolean ok = false;
         try {
-            final NativeTimer timer = new NativeTimer(this, fd, command);
+            final NativeTimer timer = new NativeTimer(this, fd, command, true);
             try {
-                if (this == currentThread()) {
-                    register(timer);
-                    doResume(timer, true, false);
-                } else {
-                    execute(new Runnable() {
-                        public void run() {
-                            try {
-                                register(timer);
-                                doResume(timer, true, false);
-                            } catch (IOException e) {
-                                // this is a problem... punt!
-                                timer.handleReadReady();
-                            }
-                        }
-                    });
-                }
+                register(timer);
+                doResume(timer, true, false);
+                ok = true;
+                return timer;
+            } catch (IOException e) {
+                throw new RejectedExecutionException("Not enough resources to create timer");
+            }
+        } finally {
+            if (! ok) {
+                Native.close(fd);
+            }
+        }
+    }
+
+    public Key executeAtInterval(final Runnable command, final long time, final TimeUnit unit) {
+        final int seconds = (int) Math.min(unit.toSeconds(time), (long)Integer.MAX_VALUE);
+        final int nanos = (int) (unit.toNanos(time) % 1000000000L);
+        final int fd = Native.createTimer(seconds, nanos);
+        if (fd < 0) {
+            throw new RejectedExecutionException("Not enough resources to create timer");
+        }
+        boolean ok = false;
+        try {
+            final NativeTimer timer = new NativeTimer(this, fd, command, false);
+            try {
+                register(timer);
+                doResume(timer, true, false);
                 ok = true;
                 return timer;
             } catch (IOException e) {
