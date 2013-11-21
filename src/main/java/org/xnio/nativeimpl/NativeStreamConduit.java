@@ -23,6 +23,7 @@ import static org.xnio.nativeimpl.Log.log;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.util.concurrent.TimeUnit;
 
@@ -97,18 +98,27 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public int read(final ByteBuffer dst) throws IOException {
+        if (allAreSet(state, READ_SHUTDOWN)) {
+            return -1;
+        }
         int res = Native.readSingle(fd, dst);
         checkReadTimeout(res > 0);
         return res;
     }
 
     public long read(final ByteBuffer[] dsts, final int offs, final int len) throws IOException {
+        if (allAreSet(state, READ_SHUTDOWN)) {
+            return -1;
+        }
         long res = Native.readScatter(fd, dsts, offs, len);
         checkReadTimeout(res > 0);
         return res;
     }
 
     public long transferTo(final long position, final long count, FileChannel target) throws IOException {
+        if (allAreSet(state, READ_SHUTDOWN)) {
+            return 0L;
+        }
         target = thread.getWorker().getXnio().unwrapFileChannel(target);
         long res;
         if (Native.HAS_SPLICE && target instanceof FileChannelImpl) {
@@ -121,6 +131,9 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public long transferTo(final long count, final ByteBuffer throughBuffer, final StreamSinkChannel target) throws IOException {
+        if (allAreSet(state, READ_SHUTDOWN)) {
+            return -1L;
+        }
         if (Native.HAS_SPLICE && target instanceof NativeDescriptor) {
             return Native.transfer(fd, count, throughBuffer, ((NativeDescriptor) target).fd);
         } else {
@@ -229,18 +242,27 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public int write(final ByteBuffer src) throws IOException {
+        if (allAreSet(state, WRITE_SHUTDOWN)) {
+            throw new ClosedChannelException();
+        }
         final int res = Native.writeSingle(fd, src);
         checkWriteTimeout(res > 0);
         return res;
     }
 
     public long write(final ByteBuffer[] srcs, final int offs, final int len) throws IOException {
+        if (allAreSet(state, WRITE_SHUTDOWN)) {
+            throw new ClosedChannelException();
+        }
         final long res = Native.writeGather(fd, srcs, offs, len);
         checkWriteTimeout(res > 0);
         return res;
     }
 
     public long transferFrom(FileChannel src, final long position, final long count) throws IOException {
+        if (allAreSet(state, WRITE_SHUTDOWN)) {
+            throw new ClosedChannelException();
+        }
         final long res;
         src = thread.getWorker().getXnio().unwrapFileChannel(src);
         if (Native.HAS_SENDFILE && src instanceof FileChannelImpl) {
@@ -253,6 +275,9 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public long transferFrom(final StreamSourceChannel source, final long count, final ByteBuffer throughBuffer) throws IOException {
+        if (allAreSet(state, WRITE_SHUTDOWN)) {
+            throw new ClosedChannelException();
+        }
         final long res;
         checkWriteTimeout(false);
         if (Native.HAS_SPLICE && source instanceof NativeDescriptor) {
