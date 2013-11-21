@@ -183,7 +183,7 @@ final class Native {
         if (cnt > 0) {
             buf1.position(pos1 + cnt);
         }
-        return cnt == 0 ? -1 : cnt;
+        return cnt;
     }
 
     static long readScatter(final int fd, ByteBuffer[] buffers, int offs, int len) throws IOException {
@@ -313,7 +313,7 @@ final class Native {
         if (cnt > 0) {
             buf1.position(pos1 + cnt);
         }
-        return cnt == 0 ? -1 : cnt;
+        return cnt;
     }
 
     static long writeGather(final int fd, ByteBuffer[] buffers, int offs, int len) throws IOException {
@@ -392,7 +392,7 @@ final class Native {
             }
             return cnt;
         }
-        final long cnt = writeMisc(fd, buffers, offs, len);
+        final long cnt = testAndThrowWrite(writeMisc(fd, buffers, offs, len));
         Buffers.trySkip(buffers, offs, len, cnt);
         return cnt;
     }
@@ -549,7 +549,10 @@ final class Native {
     }
 
     static long testAndThrowWrite(long res) throws IOException {
-        return res == -EAGAIN ? 0L : res == -EBADF ? -1L : res == 0 ? -1L : testAndThrow(res);
+        if (res == -EBADF || res == 0L) {
+            throw new ClosedChannelException();
+        }
+        return res == -EAGAIN ? 0L : testAndThrow(res);
     }
 
     static int testAndThrow(int res) throws IOException {
