@@ -47,16 +47,14 @@ import org.xnio.channels.WriteTimeoutException;
 @MessageLogger(projectCode = "XNIO")
 interface Log extends BasicLogger {
     Log log = Logger.getMessageLogger(Log.class, "org.xnio.native");
-    Log socketLog = Logger.getMessageLogger(Log.class, "org.xnio.native.socket");
-    Log tcpServerLog = Logger.getMessageLogger(Log.class, "org.xnio.native.tcp.server");
-    Log udpServerChannelLog = Logger.getMessageLogger(Log.class, "org.xnio.native.udp.server.channel");
-
+    Log serverLog = Logger.getMessageLogger(Log.class, "org.xnio.native.server");
+    Log udpServerChannelLog = Logger.getMessageLogger(Log.class, "org.xnio.native.udp");
     Log epollLog = Logger.getMessageLogger(Log.class, "org.xnio.native.epoll");
 
     // Greeting
 
     @LogMessage(level = INFO)
-    @Message(value = "XNIO NIO Implementation Version %s")
+    @Message(value = "XNIO Native Implementation version %s")
     void greeting(String version);
 
     // Validation messages - cross-check with xnio-api

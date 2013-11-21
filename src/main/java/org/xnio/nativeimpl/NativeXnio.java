@@ -21,7 +21,6 @@ package org.xnio.nativeimpl;
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import org.jboss.logging.Logger;
 import org.xnio.OptionMap;
 import org.xnio.Xnio;
 import org.xnio.XnioWorker;
@@ -35,7 +34,7 @@ import org.xnio.management.XnioWorkerMXBean;
 final class NativeXnio extends Xnio {
 
     static {
-        Logger.getLogger("org.xnio.native").infof("XNIO Native Implementation version %s", Version.getVersionString());
+        Log.log.greeting(Version.getVersionString());
     }
 
     public NativeXnio() {
