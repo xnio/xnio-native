@@ -349,7 +349,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     public boolean flush() throws IOException {
-        if (Native.HAS_CORK) {
+        if (Native.HAS_CORK && allAreClear(state, WRITE_SHUTDOWN)) {
             // ignore errors
             Native.flushTcpCork(fd);
         }
