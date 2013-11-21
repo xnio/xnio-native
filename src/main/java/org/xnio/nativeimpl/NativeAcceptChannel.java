@@ -24,6 +24,7 @@ import java.net.SocketAddress;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
@@ -58,6 +59,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     private final int fd;
     private final NativeXnioWorker worker;
     private final Closeable mbeanHandle;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     private volatile long connectionStatus = CONN_LOW_MASK | CONN_HIGH_MASK;
     @SuppressWarnings("unused")
@@ -202,13 +204,14 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     }
 
     public void close() throws IOException {
-        // todo only do once
-        for (AcceptChannelHandle handle : handles) {
-            handle.unregister();
+        if (! closed.getAndSet(true)) {
+            for (AcceptChannelHandle handle : handles) {
+                handle.unregister();
+            }
+            safeClose(mbeanHandle);
+            Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
+            new FdRef<NativeAcceptChannel>(this, fd);
         }
-        safeClose(mbeanHandle);
-        // todo: for now we just leak these FDs forever; need to adapt FdRef to be able to point to us
-        Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
     }
 
     private static final Set<Option<?>> options = Option.setBuilder()
@@ -369,8 +372,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     }
 
     public boolean isOpen() {
-        // todo
-        throw new UnsupportedOperationException();
+        return ! closed.get();
     }
 
     public SocketAddress getLocalAddress() {
