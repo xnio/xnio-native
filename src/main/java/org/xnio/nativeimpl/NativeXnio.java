@@ -18,12 +18,16 @@
 
 package org.xnio.nativeimpl;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import org.jboss.logging.Logger;
 import org.xnio.OptionMap;
 import org.xnio.Xnio;
 import org.xnio.XnioWorker;
+import org.xnio.management.XnioProviderMXBean;
+import org.xnio.management.XnioServerMXBean;
+import org.xnio.management.XnioWorkerMXBean;
 
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
@@ -36,6 +40,15 @@ final class NativeXnio extends Xnio {
 
     public NativeXnio() {
         super("native");
+        register(new XnioProviderMXBean() {
+            public String getName() {
+                return "native";
+            }
+
+            public String getVersion() {
+                return Version.getVersionString();
+            }
+        });
     }
 
     public XnioWorker createWorker(final ThreadGroup threadGroup, final OptionMap optionMap, final Runnable terminationTask) throws IOException, IllegalArgumentException {
@@ -46,5 +59,13 @@ final class NativeXnio extends Xnio {
 
     protected FileChannel unwrapFileChannel(final FileChannel src) {
         return super.unwrapFileChannel(src);
+    }
+
+    protected static Closeable register(XnioWorkerMXBean mbean) {
+        return Xnio.register(mbean);
+    }
+
+    protected static Closeable register(XnioServerMXBean mbean) {
+        return Xnio.register(mbean);
     }
 }

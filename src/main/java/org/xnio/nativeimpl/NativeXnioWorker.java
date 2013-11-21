@@ -18,6 +18,7 @@
 
 package org.xnio.nativeimpl;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
@@ -42,6 +43,7 @@ import org.xnio.StreamConnection;
 import org.xnio.XnioWorker;
 import org.xnio.channels.AcceptingChannel;
 import org.xnio.channels.MulticastMessageChannel;
+import org.xnio.management.XnioWorkerMXBean;
 
 import static java.util.concurrent.locks.LockSupport.unpark;
 import static org.xnio.nativeimpl.Log.log;
@@ -58,6 +60,7 @@ final class NativeXnioWorker extends XnioWorker {
     private volatile int state = 1;
 
     private final NativeWorkerThread[] workerThreads;
+    private final Closeable mbeanHandle;
 
     @SuppressWarnings("unused")
     private volatile Thread shutdownWaiter;
@@ -83,8 +86,8 @@ final class NativeXnioWorker extends XnioWorker {
             throw log.optionOutOfRange("STACK_SIZE");
 
         }
-        String workerName = getName();
-        NativeWorkerThread[] workerThreads;
+        final String workerName = getName();
+        final NativeWorkerThread[] workerThreads;
         workerThreads = new NativeWorkerThread[threadCount];
         final boolean markWorkerThreadAsDaemon = optionMap.get(Options.THREAD_DAEMON, false);
         boolean ok = false;
@@ -113,6 +116,31 @@ final class NativeXnioWorker extends XnioWorker {
             }
         }
         this.workerThreads = workerThreads;
+        mbeanHandle = NativeXnio.register(new XnioWorkerMXBean() {
+            public String getProviderName() {
+                return "native";
+            }
+
+            public String getName() {
+                return workerName;
+            }
+
+            public boolean isShutdownRequested() {
+                return isShutdown();
+            }
+
+            public int getCoreWorkerPoolSize() {
+                return NativeXnioWorker.this.getCoreWorkerPoolSize();
+            }
+
+            public int getMaxWorkerPoolSize() {
+                return NativeXnioWorker.this.getMaxWorkerPoolSize();
+            }
+
+            public int getIoThreadCount() {
+                return workerThreads.length;
+            }
+        });
     }
 
     void start() {

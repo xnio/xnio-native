@@ -177,4 +177,9 @@ final class AcceptChannelHandle extends NativeDescriptor {
             });
         }
     }
+
+    int getConnectionCount() {
+        assert currentThread() == this.thread;
+        return count;
+    }
 }

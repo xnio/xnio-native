@@ -18,10 +18,13 @@
 
 package org.xnio.nativeimpl;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.SocketAddress;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
@@ -37,7 +40,9 @@ import org.xnio.channels.AcceptListenerSettable;
 import org.xnio.channels.CloseListenerSettable;
 import org.xnio.channels.SuspendableAcceptChannel;
 import org.xnio.channels.UnsupportedOptionException;
+import org.xnio.management.XnioServerMXBean;
 
+import static org.xnio.IoUtils.safeClose;
 import static org.xnio.nativeimpl.Log.log;
 
 /**
@@ -52,6 +57,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     private final AcceptChannelHandle[] handles;
     private final int fd;
     private final NativeXnioWorker worker;
+    private final Closeable mbeanHandle;
 
     private volatile long connectionStatus = CONN_LOW_MASK | CONN_HIGH_MASK;
     @SuppressWarnings("unused")
@@ -137,6 +143,48 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
                 handles[i].initializeTokenCount(i < tokens ? connections : 0);
             }
         }
+        mbeanHandle = NativeXnio.register(new XnioServerMXBean() {
+            public String getProviderName() {
+                return "native";
+            }
+
+            public String getWorkerName() {
+                return getWorker().getName();
+            }
+
+            public String getBindAddress() {
+                return String.valueOf(getLocalAddress());
+            }
+
+            public int getConnectionCount() {
+                final AtomicInteger counter = new AtomicInteger();
+                final CountDownLatch latch = new CountDownLatch(handles.length);
+                for (final AcceptChannelHandle handle : handles) try {
+                    handle.thread.execute(new Runnable() {
+                        public void run() {
+                            counter.getAndAdd(handle.getConnectionCount());
+                            latch.countDown();
+                        }
+                    });
+                } catch (Throwable ignored) {
+                    latch.countDown();
+                }
+                try {
+                    latch.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return counter.get();
+            }
+
+            public int getConnectionLimitHighWater() {
+                return getHighWater(connectionStatus);
+            }
+
+            public int getConnectionLimitLowWater() {
+                return getLowWater(connectionStatus);
+            }
+        });
     }
 
     void register() throws IOException {
@@ -158,6 +206,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
         for (AcceptChannelHandle handle : handles) {
             handle.unregister();
         }
+        safeClose(mbeanHandle);
         // todo: for now we just leak these FDs forever; need to adapt FdRef to be able to point to us
         Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
     }
