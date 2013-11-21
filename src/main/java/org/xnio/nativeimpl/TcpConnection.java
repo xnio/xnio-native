@@ -29,8 +29,8 @@ import org.xnio.Options;
  */
 final class TcpConnection extends NativeStreamConnection {
 
-    protected TcpConnection(final NativeWorkerThread thread, final int fd) {
-        super(thread, fd);
+    protected TcpConnection(final NativeWorkerThread thread, final int fd, final AcceptChannelHandle acceptChannelHandle) {
+        super(thread, fd, acceptChannelHandle);
     }
 
     private static final Set<Option<?>> OPTIONS = Option.setBuilder()

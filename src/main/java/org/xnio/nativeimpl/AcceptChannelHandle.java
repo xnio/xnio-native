@@ -52,10 +52,6 @@ final class AcceptChannelHandle extends NativeDescriptor {
     protected void handleWriteReady() {
     }
 
-    Runnable getFreeTask() {
-        return freeTask;
-    }
-
     void resume() {
         final NativeWorkerThread thread = this.thread;
         if (thread == currentThread()) {

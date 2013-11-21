@@ -24,7 +24,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 import org.xnio.ChannelListener;
 import org.xnio.ChannelListeners;
@@ -34,7 +33,6 @@ import org.xnio.OptionMap;
 import org.xnio.Options;
 import org.xnio.XnioExecutor;
 import org.xnio.XnioIoThread;
-import org.xnio.XnioWorker;
 import org.xnio.channels.AcceptListenerSettable;
 import org.xnio.channels.CloseListenerSettable;
 import org.xnio.channels.SuspendableAcceptChannel;
@@ -271,7 +269,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
         return (int) ((value & CONN_LOW_MASK) >> CONN_LOW_BIT);
     }
 
-    protected abstract NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread);
+    protected abstract NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread, final AcceptChannelHandle acceptChannelHandle);
 
     public NativeStreamConnection accept() throws IOException {
         final NativeWorkerThread current = NativeWorkerThread.getCurrent();
@@ -289,7 +287,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
             Native.testAndThrow(accepted);
             Native.testAndThrow(Native.finishConnect(accepted));
             try {
-                final NativeStreamConnection newConnection = constructConnection(accepted, current);
+                final NativeStreamConnection newConnection = constructConnection(accepted, current, handle);
                 newConnection.setOption(Options.READ_TIMEOUT, Integer.valueOf(readTimeout));
                 newConnection.setOption(Options.WRITE_TIMEOUT, Integer.valueOf(writeTimeout));
                 current.register(newConnection.conduit);
@@ -298,8 +296,6 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
             } finally {
                 if (! ok) Native.close(accepted);
             }
-        } catch (IOException e) {
-            throw e;
         } finally {
             if (! ok) {
                 handle.freeConnection();

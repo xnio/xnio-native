@@ -66,8 +66,8 @@ final class TcpServer extends NativeAcceptChannel<TcpServer> implements Acceptin
         return null;
     }
 
-    protected NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread) {
-        return new TcpConnection(thread, fd);
+    protected NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread, final AcceptChannelHandle acceptChannelHandle) {
+        return new TcpConnection(thread, fd, acceptChannelHandle);
     }
 
     public boolean supportsOption(final Option<?> option) {

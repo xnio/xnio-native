@@ -112,7 +112,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                                 Native.close(fd);
                             }
                         } else {
-                            final NativeStreamConnection connection = destination instanceof LocalSocketAddress ? new UnixConnection(NativeWorkerThread.this, nfd) : new TcpConnection(NativeWorkerThread.this, nfd);
+                            final NativeStreamConnection connection = destination instanceof LocalSocketAddress ? new UnixConnection(NativeWorkerThread.this, nfd, null) : new TcpConnection(NativeWorkerThread.this, nfd, null);
                             final NativeStreamConduit conduit = connection.getConduit();
                             try {
                                 register(conduit);
@@ -173,7 +173,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
         try {
             final int fd = streamSocket(destinationAddress);
             try {
-                final NativeStreamConnection connection = destinationAddress instanceof LocalSocketAddress ? new UnixConnection(this, fd) : new TcpConnection(this, fd);
+                final NativeStreamConnection connection = destinationAddress instanceof LocalSocketAddress ? new UnixConnection(this, fd, null) : new TcpConnection(this, fd, null);
                 final NativeStreamConduit conduit = connection.getConduit();
                 register(conduit);
                 if (Native.testAndThrowConnect(Native.connect(fd, Native.encodeSocketAddress(destinationAddress))) == 0) {

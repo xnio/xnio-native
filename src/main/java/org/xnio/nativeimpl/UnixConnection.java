@@ -28,8 +28,8 @@ import org.xnio.Option;
  */
 final class UnixConnection extends NativeStreamConnection {
 
-    protected UnixConnection(final NativeWorkerThread thread, final int fd) {
-        super(thread, fd);
+    protected UnixConnection(final NativeWorkerThread thread, final int fd, final AcceptChannelHandle acceptChannelHandle) {
+        super(thread, fd, acceptChannelHandle);
     }
 
     protected NativeStreamConduit constructConduit(final NativeWorkerThread thread, final int fd) {

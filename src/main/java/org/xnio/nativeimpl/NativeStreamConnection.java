@@ -35,10 +35,12 @@ abstract class NativeStreamConnection extends StreamConnection {
 
     final int fd;
     final NativeStreamConduit conduit;
+    final AcceptChannelHandle acceptChannelHandle;
 
-    protected NativeStreamConnection(final NativeWorkerThread thread, final int fd) {
+    protected NativeStreamConnection(final NativeWorkerThread thread, final int fd, final AcceptChannelHandle acceptChannelHandle) {
         super(thread);
         this.fd = fd;
+        this.acceptChannelHandle = acceptChannelHandle;
         this.conduit = constructConduit(thread, fd);
         setSourceConduit(conduit);
         setSinkConduit(conduit);
@@ -121,7 +123,14 @@ abstract class NativeStreamConnection extends StreamConnection {
     }
 
     protected void closeAction() throws IOException {
-        conduit.terminate();
+        try {
+            conduit.terminate();
+        } finally {
+            final AcceptChannelHandle handle = acceptChannelHandle;
+            if (handle != null) {
+                handle.channelClosed();
+            }
+        }
     }
 
     public String toString() {

@@ -53,8 +53,8 @@ final class UnixServer extends NativeAcceptChannel<UnixServer> implements Accept
         return null;
     }
 
-    protected NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread) {
-        return new UnixConnection(thread, fd);
+    protected NativeStreamConnection constructConnection(int fd, NativeWorkerThread thread, final AcceptChannelHandle acceptChannelHandle) {
+        return new UnixConnection(thread, fd, acceptChannelHandle);
     }
 
     public boolean supportsOption(final Option<?> option) {
