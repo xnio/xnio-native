@@ -26,8 +26,6 @@ import java.util.concurrent.TimeUnit;
 import static org.xnio.Bits.*;
 import static org.xnio.nativeimpl.Log.epollLog;
 
-import org.xnio.XnioExecutor;
-
 /**
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
@@ -119,13 +117,13 @@ final class EPollWorkerThread extends NativeWorkerThread {
                         channel = reg.channel;
                         if (channel != null) {
                             if (Native.EXTRA_TRACE) epollLog.tracef("Channel %s is ready", channel);
-                            if (write) {
-                                epollLog.tracef("Channel %s is ready (write)", channel);
-                                channel.handleWriteReady();
-                            }
                             if (read) {
                                 epollLog.tracef("Channel %s is ready (read)", channel);
                                 channel.handleReadReady();
+                            }
+                            if (write) {
+                                epollLog.tracef("Channel %s is ready (write)", channel);
+                                channel.handleWriteReady();
                             }
                         }
                     } else {
@@ -159,7 +157,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
             final NativeTimer timer = new NativeTimer(this, fd, command, true);
             try {
                 register(timer);
-                doResume(timer, true, false);
+                doResume(timer, true, false, true);
                 ok = true;
                 return timer;
             } catch (IOException e) {
@@ -184,7 +182,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
             final NativeTimer timer = new NativeTimer(this, fd, command, false);
             try {
                 register(timer);
-                doResume(timer, true, false);
+                doResume(timer, true, false, true);
                 ok = true;
                 return timer;
             } catch (IOException e) {
@@ -221,11 +219,15 @@ final class EPollWorkerThread extends NativeWorkerThread {
         }
     }
 
-    void doResume(final NativeDescriptor channel, final boolean read, final boolean write) {
+    void doResume(final NativeDescriptor channel, final boolean read, final boolean write, final boolean edge) {
         final int fd = channel.fd;
         final int id = channel.id;
-        if (Native.EXTRA_TRACE) epollLog.tracef("Resuming read=%s write=%s on id=%d, fd=%d", read, write, id, fd);
-        Native.epollCtlMod(epfd, fd, (read ? Native.EPOLL_FLAG_READ : 0) | (write ? Native.EPOLL_FLAG_WRITE : 0) | Native.EPOLL_FLAG_EDGE, id);
+        if (Native.EXTRA_TRACE) epollLog.tracef("Resuming read=%s write=%s edge=%s on id=%d, fd=%d", read, write, edge, id, fd);
+        int v = 0;
+        if (read) v |= Native.EPOLL_FLAG_READ;
+        if (write) v |= Native.EPOLL_FLAG_WRITE;
+        if (edge) v |= Native.EPOLL_FLAG_EDGE;
+        Native.epollCtlMod(epfd, fd, v, id);
         if (currentThread() != this) {
             doWakeup();
         }

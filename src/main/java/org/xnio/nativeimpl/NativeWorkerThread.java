@@ -24,6 +24,7 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.ArrayDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
@@ -65,6 +66,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
     private final Object lock = new Object();
 
     private final ConcurrentLinkedQueue<Runnable> queue = new ConcurrentLinkedQueue<>();
+    private final ArrayDeque<Runnable> localQueue = new ArrayDeque<>();
 
     NativeWorkerThread(final NativeXnioWorker worker, final int threadNumber, final String name, final ThreadGroup group, final long stackSize) {
         super(worker, threadNumber, group, name, stackSize);
@@ -136,7 +138,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                 };
                 register(listener);
                 try {
-                    doResume(listener, true, false);
+                    doResume(listener, true, false, true);
                     ok = true;
                 } finally {
                     if (! ok) {
@@ -290,6 +292,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                 // run tasks first
                 do {
                     task = queue.poll();
+                    if (task == null) task = localQueue.poll();
                     safeRun(task);
                 } while (task != null);
                 // all tasks have been run
@@ -321,8 +324,17 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
         if ((state & SHUTDOWN) != 0) {
             throw log.threadExiting();
         }
-        queue.add(command);
-        if (this != Thread.currentThread()) doWakeup();
+        if (this != currentThread()) {
+            queue.add(command);
+            doWakeup();
+        } else {
+            localQueue.add(command);
+        }
+    }
+
+    void executeLocal(final Runnable runnable) {
+        assert this == currentThread();
+        localQueue.add(runnable);
     }
 
     final void shutdown() {
@@ -339,7 +351,7 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
 
     abstract void register(NativeDescriptor channel) throws IOException;
 
-    abstract void doResume(NativeDescriptor channel, boolean read, boolean write);
+    abstract void doResume(NativeDescriptor channel, boolean read, boolean write, boolean edge);
 
     abstract void unregister(final NativeDescriptor channel);
 

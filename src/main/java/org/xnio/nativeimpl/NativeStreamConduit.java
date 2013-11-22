@@ -18,6 +18,7 @@
 
 package org.xnio.nativeimpl;
 
+import static java.lang.Thread.currentThread;
 import static org.xnio.Bits.*;
 import static org.xnio.nativeimpl.Log.log;
 
@@ -48,12 +49,16 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     private final NativeStreamConnection connection;
 
     private static final int READ_RESUMED   = 0b00000001;
-    private static final int READ_SHUTDOWN  = 0b00000010;
+    private static final int READ_WAKEUP    = 0b00000010;
+    private static final int READ_SHUTDOWN  = 0b00000100;
+    private static final int READ_READY     = 0b00001000;
 
-    private static final int WRITE_RESUMED  = 0b00000100;
-    private static final int WRITE_SHUTDOWN = 0b00001000;
+    private static final int WRITE_RESUMED  = 0b00010000;
+    private static final int WRITE_WAKEUP   = 0b00100000;
+    private static final int WRITE_SHUTDOWN = 0b01000000;
+    private static final int WRITE_READY    = 0b10000000;
 
-    private int state;
+    private int state = WRITE_READY | READ_READY;
 
     private ReadReadyHandler readReadyHandler;
     private WriteReadyHandler writeReadyHandler;
@@ -64,26 +69,70 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     private int writeTimeout;
     private long lastWrite;
 
-    private final Runnable wakeupWritesTask = new Runnable() {
+    private final Runnable writeReadyTask = new Runnable() {
         public void run() {
+            assert thread == currentThread();
             final WriteReadyHandler handler = writeReadyHandler;
+            int state = NativeStreamConduit.this.state;
             if (handler != null) {
-                resumeWrites();
-                try {
-                    handler.writeReady();
-                } catch (Throwable ignored) {}
+                if (allAreSet(state, WRITE_WAKEUP)) {
+                    if (Native.EXTRA_TRACE) log.tracef("Write wakeup ready on %s", NativeStreamConduit.this);
+                    if (allAreClear(state, WRITE_RESUMED)) {
+                        NativeStreamConduit.this.state = state | WRITE_RESUMED;
+                        thread.doResume(NativeStreamConduit.this, allAreSet(state, READ_RESUMED), true, true);
+                    }
+                    NativeStreamConduit.this.state = state & ~WRITE_WAKEUP;
+                }
+                if (allAreSet(state, WRITE_RESUMED)) {
+                    try {
+                        handler.writeReady();
+                    } catch (Throwable ignored) {
+                    }
+                    state = NativeStreamConduit.this.state;
+                    if (allAreSet(state, WRITE_READY | WRITE_RESUMED)) {
+                        if (Native.EXTRA_TRACE) log.tracef("Write still ready after handler on %s", this);
+                        thread.executeLocal(this);
+                    }
+                } else {
+                    if (Native.EXTRA_TRACE) log.tracef("Write ready but was not resumed on %s", this);
+                }
+            } else {
+                suspendWrites();
+                if (Native.EXTRA_TRACE) log.tracef("Write ready but no handler on %s", this);
             }
         }
     };
 
-    private final Runnable wakeupReadsTask = new Runnable() {
+    private final Runnable readReadyTask = new Runnable() {
         public void run() {
+            assert thread == currentThread();
             final ReadReadyHandler handler = readReadyHandler;
+            int state = NativeStreamConduit.this.state;
             if (handler != null) {
-                resumeReads();
-                try {
-                    handler.readReady();
-                } catch (Throwable ignored) {}
+                if (allAreSet(state, READ_WAKEUP)) {
+                    if (Native.EXTRA_TRACE) log.tracef("Read wakeup ready on %s", NativeStreamConduit.this);
+                    if (allAreClear(state, READ_RESUMED)) {
+                        NativeStreamConduit.this.state = state | READ_RESUMED;
+                        thread.doResume(NativeStreamConduit.this, true, allAreSet(state, WRITE_RESUMED), true);
+                    }
+                    NativeStreamConduit.this.state = state & ~READ_WAKEUP;
+                }
+                if (allAreSet(state, READ_RESUMED)) {
+                    try {
+                        handler.readReady();
+                    } catch (Throwable ignored) {
+                    }
+                    state = NativeStreamConduit.this.state;
+                    if (allAreSet(state, READ_READY | READ_RESUMED)) {
+                        if (Native.EXTRA_TRACE) log.tracef("Read still ready after handler on %s", this);
+                        thread.executeLocal(this);
+                    }
+                } else {
+                    if (Native.EXTRA_TRACE) log.tracef("Read ready but was not resumed on %s", this);
+                }
+            } else {
+                suspendReads();
+                if (Native.EXTRA_TRACE) log.tracef("Read ready but no handler on %s", this);
             }
         }
     };
@@ -126,6 +175,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
             return -1;
         }
         int res = Native.readSingle(fd, dst);
+        if (res <= 0) state &= ~READ_READY;
         checkReadTimeout(res > 0);
         return res;
     }
@@ -135,12 +185,13 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
             return -1;
         }
         long res = Native.readScatter(fd, dsts, offs, len);
+        if (res <= 0) state &= ~READ_READY;
         checkReadTimeout(res > 0);
         return res;
     }
 
     public long transferTo(final long position, final long count, FileChannel target) throws IOException {
-        if (allAreSet(state, READ_SHUTDOWN)) {
+        if (allAreSet(state, READ_SHUTDOWN) || count <= 0L) {
             return 0L;
         }
         target = thread.getWorker().getXnio().unwrapFileChannel(target);
@@ -151,12 +202,13 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         } else {
             res = target.transferFrom(new ConduitReadableByteChannel(this), position, count);
         }
+        if (res == 0) state &= ~READ_READY;
         checkReadTimeout(res > 0);
         return res;
     }
 
     public long transferTo(final long count, final ByteBuffer throughBuffer, final StreamSinkChannel target) throws IOException {
-        if (allAreSet(state, READ_SHUTDOWN)) {
+        if (allAreSet(state, READ_SHUTDOWN) || count <= 0L) {
             return -1L;
         }
         final long res;
@@ -166,6 +218,8 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         } else {
             res = Conduits.transfer(this, count, throughBuffer, target);
         }
+        if (res <= 0) state &= ~READ_READY;
+        if (res > 0) checkReadTimeout(true);
         return res;
     }
 
@@ -173,16 +227,16 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (connection.readClosed()) try {
             int state = this.state;
             if (allAreClear(state, READ_SHUTDOWN)) {
-                this.state = state | READ_SHUTDOWN;
+                this.state = state & ~(READ_READY|READ_WAKEUP|READ_RESUMED) | READ_SHUTDOWN;
                 if (allAreSet(state, WRITE_SHUTDOWN)) {
                     terminate();
                 } else {
+                    thread.doResume(this, false, allAreSet(state, WRITE_RESUMED), true);
                     Native.testAndThrow(Native.shutdown(fd, true, false));
                     if (Native.EXTRA_TRACE) log.tracef("Shutdown reads(%d)", fd);
                 }
             }
         } finally {
-            suspendReads();
             readTerminated();
         }
     }
@@ -203,7 +257,10 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreClear(state, READ_RESUMED)) {
             if (Native.EXTRA_TRACE) log.tracef("Resume reads on %s", this);
             this.state = state | READ_RESUMED;
-            thread.doResume(this, true, allAreSet(state, WRITE_RESUMED));
+            thread.doResume(this, true, allAreSet(state, WRITE_RESUMED), true);
+            if (allAreSet(state, READ_READY)) {
+                thread.execute(readReadyTask);
+            }
         } else {
             if (Native.EXTRA_TRACE) log.tracef("Reads were already resumed on %s", this);
         }
@@ -214,7 +271,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreSet(state, READ_RESUMED)) {
             if (Native.EXTRA_TRACE) log.tracef("Suspend reads on %s", this);
             this.state = state & ~READ_RESUMED;
-            thread.doResume(this, false, allAreSet(state, WRITE_RESUMED));
+            thread.doResume(this, false, allAreSet(state, WRITE_RESUMED), true);
         } else {
             if (Native.EXTRA_TRACE) log.tracef("Reads were already suspended on %s", this);
         }
@@ -222,18 +279,25 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
 
     public void wakeupReads() {
         if (Native.EXTRA_TRACE) log.tracef("Wakeup reads on %s", this);
-        thread.execute(wakeupReadsTask);
+        final int state = this.state;
+        // this test is only really needed if a thread wakes itself up repeatedly, which would be odd, but is allowed
+        if (allAreClear(state, READ_WAKEUP)) {
+            this.state |= READ_WAKEUP;
+            thread.execute(readReadyTask);
+        }
     }
 
     public boolean isReadResumed() {
-        return allAreSet(state, READ_RESUMED);
+        return anyAreSet(state, READ_RESUMED | READ_WAKEUP);
     }
 
     public void awaitReadable() throws IOException {
+        if (Native.EXTRA_TRACE) log.tracef("Await readable on %s", this);
         Native.testAndThrow(Native.await2(fd, false));
     }
 
     public void awaitReadable(final long time, final TimeUnit timeUnit) throws IOException {
+        if (Native.EXTRA_TRACE) log.tracef("Await readable on %s (%d %s)", this, time, timeUnit.name());
         Native.testAndThrow(Native.await3(fd, false, timeUnit.toMillis(time)));
     }
 
@@ -274,6 +338,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
             throw new ClosedChannelException();
         }
         final int res = Native.writeSingle(fd, src);
+        if (res == 0) state &= ~WRITE_READY;
         checkWriteTimeout(res > 0);
         return res;
     }
@@ -283,6 +348,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
             throw new ClosedChannelException();
         }
         final long res = Native.writeGather(fd, srcs, offs, len);
+        if (res == 0) state &= ~WRITE_READY;
         checkWriteTimeout(res > 0);
         return res;
     }
@@ -291,6 +357,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreSet(state, WRITE_SHUTDOWN)) {
             throw new ClosedChannelException();
         }
+        if (count == 0L) return 0L;
         final long res;
         src = thread.getWorker().getXnio().unwrapFileChannel(src);
         if (Native.HAS_SENDFILE && src instanceof FileChannelImpl) {
@@ -299,6 +366,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         } else {
             res = src.transferTo(position, count, new ConduitWritableByteChannel(this));
         }
+        if (res == 0) state &= ~WRITE_READY;
         checkWriteTimeout(res > 0);
         return res;
     }
@@ -307,6 +375,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreSet(state, WRITE_SHUTDOWN)) {
             throw new ClosedChannelException();
         }
+        if (count == 0L) return 0L;
         final long res;
         checkWriteTimeout(false);
         if (Native.HAS_SPLICE && source instanceof NativeDescriptor) {
@@ -315,6 +384,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         } else {
             res = Conduits.transfer(source, count, throughBuffer, this);
         }
+        if (res == 0) state &= ~WRITE_READY;
         if (res > 0) checkWriteTimeout(true);
         return res;
     }
@@ -331,16 +401,16 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (connection.writeClosed()) try {
             int state = this.state;
             if (allAreClear(state, WRITE_SHUTDOWN)) {
-                this.state = state | WRITE_SHUTDOWN;
+                this.state = state & ~(WRITE_READY|WRITE_WAKEUP|WRITE_RESUMED) | WRITE_SHUTDOWN;
                 if (allAreSet(state, READ_SHUTDOWN)) {
                     terminate();
                 } else {
+                    thread.doResume(this, allAreSet(state, READ_RESUMED), false, true);
                     Native.testAndThrow(Native.shutdown(fd, false, true));
                     if (Native.EXTRA_TRACE) log.tracef("Shutdown writes(%d)", fd);
                 }
             }
         } finally {
-            suspendWrites();
             writeTerminated();
         }
     }
@@ -365,7 +435,10 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreClear(state, WRITE_RESUMED)) {
             if (Native.EXTRA_TRACE) log.tracef("Resume writes on %s", this);
             this.state = state | WRITE_RESUMED;
-            thread.doResume(this, allAreSet(state, READ_RESUMED), true);
+            thread.doResume(this, allAreSet(state, READ_RESUMED), true, true);
+            if (allAreSet(state, WRITE_READY)) {
+                thread.execute(writeReadyTask);
+            }
         } else {
             if (Native.EXTRA_TRACE) log.tracef("Writes were already resumed on %s", this);
         }
@@ -376,7 +449,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreSet(state, WRITE_RESUMED)) {
             if (Native.EXTRA_TRACE) log.tracef("Suspend writes on %s", this);
             this.state = state & ~WRITE_RESUMED;
-            thread.doResume(this, allAreSet(state, READ_RESUMED), false);
+            thread.doResume(this, allAreSet(state, READ_RESUMED), false, true);
         } else {
             if (Native.EXTRA_TRACE) log.tracef("Writes were already suspended on %s", this);
         }
@@ -384,18 +457,25 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
 
     public void wakeupWrites() {
         if (Native.EXTRA_TRACE) log.tracef("Wakeup writes on %s", this);
-        thread.execute(wakeupWritesTask);
+        final int state = this.state;
+        // this test is only really needed if a thread wakes itself up repeatedly, which would be odd, but is allowed
+        if (allAreClear(state, WRITE_WAKEUP)) {
+            this.state |= WRITE_WAKEUP;
+            thread.execute(writeReadyTask);
+        }
     }
 
     public boolean isWriteResumed() {
-        return allAreSet(state, WRITE_RESUMED);
+        return anyAreSet(state, WRITE_RESUMED | WRITE_WAKEUP);
     }
 
     public void awaitWritable() throws IOException {
+        if (Native.EXTRA_TRACE) log.tracef("Await writable on %s", this);
         Native.testAndThrow(Native.await2(fd, true));
     }
 
     public void awaitWritable(final long time, final TimeUnit timeUnit) throws IOException {
+        if (Native.EXTRA_TRACE) log.tracef("Await writable on %s (%d %s)", this, time, timeUnit.name());
         Native.testAndThrow(Native.await3(fd, true, timeUnit.toMillis(time)));
     }
 
@@ -431,38 +511,13 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     }
 
     protected void handleReadReady() {
-        if (allAreSet(state, READ_RESUMED)) {
-            final ReadReadyHandler handler = readReadyHandler;
-            if (handler == null) {
-                if (Native.EXTRA_TRACE) log.tracef("Read ready but no handler on %s", this);
-                suspendReads();
-            } else {
-                try {
-                    handler.readReady();
-                } catch (Throwable ignored) {
-                }
-            }
-        } else {
-            if (Native.EXTRA_TRACE) log.tracef("Read ready but was not resumed on %s", this);
-            suspendReads();
-        }
+        state |= READ_READY;
+        readReadyTask.run();
     }
 
     protected void handleWriteReady() {
-        if (allAreSet(state, WRITE_RESUMED)) {
-            final WriteReadyHandler handler = writeReadyHandler;
-            if (handler == null) {
-                if (Native.EXTRA_TRACE) log.tracef("Write ready but no handler on %s", this);
-                suspendWrites();
-            } else {
-                try {
-                    handler.writeReady();
-                } catch (Throwable ignored) {}
-            }
-        } else {
-            if (Native.EXTRA_TRACE) log.tracef("Write ready but was not resumed on %s", this);
-            suspendWrites();
-        }
+        state |= WRITE_READY;
+        writeReadyTask.run();
     }
 
     void terminate() throws IOException {

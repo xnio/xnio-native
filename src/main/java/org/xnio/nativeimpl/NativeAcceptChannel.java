@@ -334,6 +334,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
         boolean ok = false;
         try {
             if (accepted == -Native.EAGAIN) {
+                if (Native.EXTRA_TRACE) log.tracef("Accept would block on %s", this);
                 return null;
             }
             Native.testAndThrow(accepted);
@@ -387,20 +388,17 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
 
     public void suspendAccepts() {
         resumed = false;
-        doResume(false);
+        for (AcceptChannelHandle handle : handles) {
+            handle.suspend();
+        }
     }
 
     public void resumeAccepts() {
         resumed = true;
-        doResume(true);
-    }
-
-    private void doResume(final boolean resumed) {
         for (AcceptChannelHandle handle : handles) {
-            handle.thread.doResume(handle, resumed, false);
+            handle.resume();
         }
     }
-
 
     public void wakeupAccepts() {
         resumeAccepts();
