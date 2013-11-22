@@ -32,6 +32,8 @@ linux-x86_64/%.o: src/%.c
 linux-x86_64/libxnio.so: $(LINUX_x86_64_OFILES)
 	@echo '     link ' $@
 	@$(CC) -m64 -shared $(LINUX_x86_64_OFILES) -o $@
+	@echo '    strip ' $@
+	@$(STRIP) $@
 
 linux-x32/%.o: src/%.c
 	@echo '  compile ' $@
@@ -40,6 +42,8 @@ linux-x32/%.o: src/%.c
 linux-x32/libxnio.so: $(LINUX_x32_OFILES)
 	@echo '     link ' $@
 	@$(CC) -mx32 -shared $(LINUX_x32_OFILES) -o $@
+	@echo '    strip ' $@
+	@$(STRIP) $@
 
 linux-i686/%.o: src/%.c
 	@echo '  compile ' $@
@@ -48,3 +52,5 @@ linux-i686/%.o: src/%.c
 linux-i686/libxnio.so: $(LINUX_i686_OFILES)
 	@echo '     link ' $@
 	@$(CC) -m32 -shared $(LINUX_i686_OFILES) -o $@
+	@echo '    strip ' $@
+	@$(STRIP) $@
