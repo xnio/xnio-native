@@ -64,6 +64,30 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
     private int writeTimeout;
     private long lastWrite;
 
+    private final Runnable wakeupWritesTask = new Runnable() {
+        public void run() {
+            final WriteReadyHandler handler = writeReadyHandler;
+            if (handler != null) {
+                resumeWrites();
+                try {
+                    handler.writeReady();
+                } catch (Throwable ignored) {}
+            }
+        }
+    };
+
+    private final Runnable wakeupReadsTask = new Runnable() {
+        public void run() {
+            final ReadReadyHandler handler = readReadyHandler;
+            if (handler != null) {
+                resumeReads();
+                try {
+                    handler.readReady();
+                } catch (Throwable ignored) {}
+            }
+        }
+    };
+
     NativeStreamConduit(final NativeWorkerThread thread, final int fd, final NativeStreamConnection connection) {
         super(thread, fd);
         this.connection = connection;
@@ -123,6 +147,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         long res;
         if (Native.HAS_SPLICE && target instanceof FileChannelImpl) {
             res = Native.testAndThrowWrite(Native.spliceToFile(fd, target, position, count));
+            if (Native.EXTRA_TRACE) log.tracef("Splice(%d -> %s): %d", fd, target, res);
         } else {
             res = target.transferFrom(new ConduitReadableByteChannel(this), position, count);
         }
@@ -134,11 +159,14 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (allAreSet(state, READ_SHUTDOWN)) {
             return -1L;
         }
+        final long res;
         if (Native.HAS_SPLICE && target instanceof NativeDescriptor) {
-            return Native.transfer(fd, count, throughBuffer, ((NativeDescriptor) target).fd);
+            res = Native.transfer(fd, count, throughBuffer, ((NativeDescriptor) target).fd);
+            if (Native.EXTRA_TRACE) log.tracef("Splice(%d -> %s): %d", fd, target, res);
         } else {
-            return Conduits.transfer(this, count, throughBuffer, target);
+            res = Conduits.transfer(this, count, throughBuffer, target);
         }
+        return res;
     }
 
     public void terminateReads() throws IOException {
@@ -150,6 +178,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                     terminate();
                 } else {
                     Native.testAndThrow(Native.shutdown(fd, true, false));
+                    if (Native.EXTRA_TRACE) log.tracef("Shutdown reads(%d)", fd);
                 }
             }
         } finally {
@@ -193,8 +222,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
 
     public void wakeupReads() {
         if (Native.EXTRA_TRACE) log.tracef("Wakeup reads on %s", this);
-        resumeReads();
-        // todo wakeup
+        thread.execute(wakeupReadsTask);
     }
 
     public boolean isReadResumed() {
@@ -267,6 +295,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         src = thread.getWorker().getXnio().unwrapFileChannel(src);
         if (Native.HAS_SENDFILE && src instanceof FileChannelImpl) {
             res = Native.testAndThrowRead(Native.sendfile(fd, src, position, count));
+            if (Native.EXTRA_TRACE) log.tracef("Sendfile(%s -> %d): %d", src, fd, res);
         } else {
             res = src.transferTo(position, count, new ConduitWritableByteChannel(this));
         }
@@ -282,6 +311,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         checkWriteTimeout(false);
         if (Native.HAS_SPLICE && source instanceof NativeDescriptor) {
             res = Native.testAndThrowRead(Native.transfer(((NativeDescriptor) source).fd, count, throughBuffer, fd));
+            if (Native.EXTRA_TRACE) log.tracef("Splice(%s -> %d): %d", source, fd, res);
         } else {
             res = Conduits.transfer(source, count, throughBuffer, this);
         }
@@ -306,6 +336,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                     terminate();
                 } else {
                     Native.testAndThrow(Native.shutdown(fd, false, true));
+                    if (Native.EXTRA_TRACE) log.tracef("Shutdown writes(%d)", fd);
                 }
             }
         } finally {
@@ -353,8 +384,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
 
     public void wakeupWrites() {
         if (Native.EXTRA_TRACE) log.tracef("Wakeup writes on %s", this);
-        resumeWrites();
-        // todo proper wakeup
+        thread.execute(wakeupWritesTask);
     }
 
     public boolean isWriteResumed() {
@@ -377,6 +407,7 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
         if (Native.HAS_CORK && allAreClear(state, WRITE_SHUTDOWN)) {
             // ignore errors
             Native.flushTcpCork(fd);
+            if (Native.EXTRA_TRACE) log.tracef("Flush(%d)", fd);
         }
         return true;
     }
@@ -447,5 +478,6 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
             // hope for the best
             Native.testAndThrow(Native.close(fd));
         }
+        if (Native.EXTRA_TRACE) log.tracef("Close(%d)", fd);
     }
 }

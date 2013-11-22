@@ -337,12 +337,13 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
                 return null;
             }
             Native.testAndThrow(accepted);
-            Native.testAndThrow(Native.finishConnect(accepted));
+
             try {
                 final NativeStreamConnection newConnection = constructConnection(accepted, current, handle);
                 newConnection.setOption(Options.READ_TIMEOUT, Integer.valueOf(readTimeout));
                 newConnection.setOption(Options.WRITE_TIMEOUT, Integer.valueOf(writeTimeout));
                 current.register(newConnection.conduit);
+                if (Native.EXTRA_TRACE) log.tracef("Accept(%d): %d", fd, accepted);
                 ok = true;
                 return newConnection;
             } finally {

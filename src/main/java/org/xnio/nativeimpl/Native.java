@@ -175,10 +175,14 @@ final class Native {
         }
         final int cnt;
         final int pos1 = buf1.position();
+        final int lim1 = buf1.limit();
+        if (pos1 == lim1) return 0;
         if (buf1.isDirect()) {
-            cnt = testAndThrowRead(readD(fd, buf1, pos1, buf1.limit()));
+            cnt = testAndThrowRead(readD(fd, buf1, pos1, lim1));
+            if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
         } else {
-            cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + buf1.arrayOffset(), buf1.limit() + buf1.arrayOffset()));
+            cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + buf1.arrayOffset(), lim1 + buf1.arrayOffset()));
+            if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
         }
         if (cnt > 0) {
             buf1.position(pos1 + cnt);
@@ -188,6 +192,7 @@ final class Native {
 
     static long readScatter(final int fd, ByteBuffer[] buffers, int offs, int len) throws IOException {
         if (len <= 0L) {
+            if (EXTRA_TRACE) log.tracef("Read(%d): zero array length", fd);
             return 0L;
         }
         final ByteBuffer buf1 = buffers[offs];
@@ -198,6 +203,7 @@ final class Native {
         final int lim1 = buf1.limit();
         final boolean dir1 = buf1.isDirect();
         if (len == 1) {
+            if (pos1 == lim1) return 0;
             final int cnt;
             if (dir1) {
                 cnt = testAndThrowRead(readD(fd, buf1, pos1, lim1));
@@ -208,6 +214,7 @@ final class Native {
             if (cnt > 0) {
                 buf1.position(pos1 + cnt);
             }
+            if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
             return cnt;
         }
         final ByteBuffer buf2 = buffers[offs + 1];
@@ -218,6 +225,7 @@ final class Native {
         final int lim2 = buf2.limit();
         final boolean dir2 = buf2.isDirect();
         if (len == 2) {
+            if (pos1 == lim1 && pos2 == lim2) return 0;
             final long cnt;
             if (dir1 && dir2) {
                 cnt = testAndThrowRead(readDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
@@ -226,7 +234,7 @@ final class Native {
                 final int off2 = buf2.arrayOffset();
                 cnt = testAndThrowRead(readHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
             } else {
-                cnt = readMisc(fd, buffers, offs, len);
+                cnt = testAndThrowRead(readMisc(fd, buffers, offs, len));
             }
             if (cnt > 0L) {
                 if (pos1 + cnt <= lim1) {
@@ -236,6 +244,7 @@ final class Native {
                     buf2.position(pos2 + (int) (cnt - (lim1 - pos1)));
                 }
             }
+            if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
             return cnt;
         }
         final ByteBuffer buf3 = buffers[offs + 2];
@@ -246,6 +255,7 @@ final class Native {
         final int lim3 = buf3.limit();
         final boolean dir3 = buf3.isDirect();
         if (len == 3) {
+            if (pos1 == lim1 && pos2 == lim2 && pos3 == lim3) return 0;
             final long cnt;
             if (dir1 && dir2 && dir3) {
                 cnt = testAndThrowRead(readDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
@@ -255,7 +265,7 @@ final class Native {
                 final int off3 = buf3.arrayOffset();
                 cnt = testAndThrowRead(readHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
             } else {
-                cnt = readMisc(fd, buffers, offs, len);
+                cnt = testAndThrowRead(readMisc(fd, buffers, offs, len));
             }
             if (cnt > 0L) {
                 if (pos1 + cnt <= lim1) {
@@ -269,6 +279,7 @@ final class Native {
                     buf3.position(pos3 + (int) (cnt - (lim1 - pos1 + lim2 - pos2)));
                 }
             }
+            if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
             return cnt;
         }
         for (int i = 3; i < len; i ++) {
@@ -276,8 +287,10 @@ final class Native {
                 throw new ReadOnlyBufferException();
             }
         }
-        final long cnt = readMisc(fd, buffers, offs, len);
+        if (! Buffers.hasRemaining(buffers, offs, len)) return 0;
+        final long cnt = testAndThrowRead(readMisc(fd, buffers, offs, len));
         Buffers.trySkip(buffers, offs, len, cnt);
+        if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
         return cnt;
     }
 
@@ -313,11 +326,13 @@ final class Native {
         if (cnt > 0) {
             buf1.position(pos1 + cnt);
         }
+        if (EXTRA_TRACE) log.tracef("Write(%d): %d", fd, cnt);
         return cnt;
     }
 
     static long writeGather(final int fd, ByteBuffer[] buffers, int offs, int len) throws IOException {
         if (len <= 0L) {
+            if (EXTRA_TRACE) log.tracef("Write(%d): zero array length", fd);
             return 0L;
         }
         final ByteBuffer buf1 = buffers[offs];
@@ -335,6 +350,7 @@ final class Native {
             if (cnt > 0) {
                 buf1.position(pos1 + cnt);
             }
+            if (EXTRA_TRACE) log.tracef("Write(%d): %d", fd, cnt);
             return cnt;
         }
         final ByteBuffer buf2 = buffers[offs + 1];
@@ -350,7 +366,7 @@ final class Native {
                 final int off2 = buf2.arrayOffset();
                 cnt = testAndThrowWrite(writeHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
             } else {
-                cnt = writeMisc(fd, buffers, offs, len);
+                cnt = testAndThrowWrite(writeMisc(fd, buffers, offs, len));
             }
             if (cnt > 0L) {
                 if (pos1 + cnt <= lim1) {
@@ -360,6 +376,7 @@ final class Native {
                     buf2.position(pos2 + (int) (cnt - (lim1 - pos1)));
                 }
             }
+            if (EXTRA_TRACE) log.tracef("Write(%d): %d", fd, cnt);
             return cnt;
         }
         final ByteBuffer buf3 = buffers[offs + 2];
@@ -376,7 +393,7 @@ final class Native {
                 final int off3 = buf3.arrayOffset();
                 cnt = testAndThrowWrite(writeHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
             } else {
-                cnt = writeMisc(fd, buffers, offs, len);
+                cnt = testAndThrowWrite(writeMisc(fd, buffers, offs, len));
             }
             if (cnt > 0L) {
                 if (pos1 + cnt <= lim1) {
@@ -390,10 +407,12 @@ final class Native {
                     buf3.position(pos3 + (int) (cnt - (lim1 - pos1 + lim2 - pos2)));
                 }
             }
+            if (EXTRA_TRACE) log.tracef("Write(%d): %d", fd, cnt);
             return cnt;
         }
         final long cnt = testAndThrowWrite(writeMisc(fd, buffers, offs, len));
         Buffers.trySkip(buffers, offs, len, cnt);
+        if (EXTRA_TRACE) log.tracef("Write(%d): %d", fd, cnt);
         return cnt;
     }
 
@@ -525,6 +544,8 @@ final class Native {
     static native long transfer(final int srcFd, final long count, final ByteBuffer throughBuffer, final int destFd);
 
     static native long tee(int src, int dest, long length, boolean more);
+
+    static native int readTimer(final int fd);
 
     // utilities
 

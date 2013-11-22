@@ -36,6 +36,18 @@ JNIEXPORT jint JNICALL xnio_native(createTimer)(JNIEnv *env, jclass clazz, jint 
     return fd;
 }
 
+JNIEXPORT jint JNICALL xnio_native(readTimer)(JNIEnv *env, jclass clazz, jint fd) {
+    uint64_t val;
+    ssize_t res;
+    while ((res = read(fd, &val, sizeof val)) == -1) {
+        int err = errno;
+        if (err != EINTR && err != EAGAIN) {
+            return -err;
+        }
+    }
+    return 0;
+}
+
 #endif
 
 

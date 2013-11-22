@@ -57,6 +57,7 @@ final class NativeTimer extends NativeDescriptor implements XnioExecutor.Key {
             return;
         }
         try {
+            Native.readTimer(fd);
             task.run();
         } catch (Throwable ignored) {
         }

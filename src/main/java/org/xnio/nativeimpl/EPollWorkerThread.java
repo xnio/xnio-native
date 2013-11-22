@@ -226,6 +226,9 @@ final class EPollWorkerThread extends NativeWorkerThread {
         final int id = channel.id;
         if (Native.EXTRA_TRACE) epollLog.tracef("Resuming read=%s write=%s on id=%d, fd=%d", read, write, id, fd);
         Native.epollCtlMod(epfd, fd, (read ? Native.EPOLL_FLAG_READ : 0) | (write ? Native.EPOLL_FLAG_WRITE : 0) | Native.EPOLL_FLAG_EDGE, id);
+        if (currentThread() != this) {
+            doWakeup();
+        }
     }
 
     void unregister(final NativeDescriptor channel) {
