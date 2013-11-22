@@ -25,11 +25,17 @@ import org.xnio.XnioProvider;
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
 public final class NativeXnioProvider implements XnioProvider {
-    private static final NativeXnio INSTANCE = new NativeXnio();
+
+    static final class Holder {
+        static {
+            Native.forceInit();
+        }
+
+        private static final NativeXnio INSTANCE = new NativeXnio();
+    }
 
     public Xnio getInstance() {
-        Native.forceInit();
-        return INSTANCE;
+        return Holder.INSTANCE;
     }
 
     public String getName() {

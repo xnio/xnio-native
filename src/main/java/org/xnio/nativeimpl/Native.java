@@ -69,7 +69,7 @@ final class Native {
         try {
             System.loadLibrary("xnio");
         } catch (Error error) {
-            log.errorf("Failed to load XNIO from [%s]: %s", System.getProperty("java.library.path"), error);
+            log.debugf("XNIO native not available on this platform (%s)", error);
             throw error;
         }
         final int[] constants = init();
