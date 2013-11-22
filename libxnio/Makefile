@@ -54,3 +54,5 @@ linux-i686/libxnio.so: $(LINUX_i686_OFILES)
 	@$(CC) -m32 -shared $(LINUX_i686_OFILES) -o $@
 	@echo '    strip ' $@
 	@$(STRIP) $@
+
+.PHONY: clean all linux default
