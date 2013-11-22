@@ -729,6 +729,10 @@ final class Native {
         }
     }
 
+    static void forceInit() {
+        // no operation
+    }
+
     static class BooleanPropertyAction implements PrivilegedAction<Boolean> {
 
         private final String key;

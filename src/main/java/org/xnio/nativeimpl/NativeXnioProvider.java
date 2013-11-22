@@ -28,6 +28,7 @@ public final class NativeXnioProvider implements XnioProvider {
     private static final NativeXnio INSTANCE = new NativeXnio();
 
     public Xnio getInstance() {
+        Native.forceInit();
         return INSTANCE;
     }
 
