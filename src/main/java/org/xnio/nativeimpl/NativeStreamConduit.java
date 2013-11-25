@@ -78,10 +78,9 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                 if (allAreSet(state, WRITE_WAKEUP)) {
                     if (Native.EXTRA_TRACE) log.tracef("Write wakeup ready on %s", NativeStreamConduit.this);
                     if (allAreClear(state, WRITE_RESUMED)) {
-                        state = NativeStreamConduit.this.state = state | WRITE_RESUMED;
                         thread.doResume(NativeStreamConduit.this, allAreSet(state, READ_RESUMED), true, true);
                     }
-                    state = NativeStreamConduit.this.state = state & ~WRITE_WAKEUP;
+                    state = NativeStreamConduit.this.state = state & ~WRITE_WAKEUP | WRITE_RESUMED;
                 }
                 if (allAreSet(state, WRITE_RESUMED)) {
                     try {
@@ -112,10 +111,9 @@ class NativeStreamConduit extends NativeDescriptor implements StreamSourceCondui
                 if (allAreSet(state, READ_WAKEUP)) {
                     if (Native.EXTRA_TRACE) log.tracef("Read wakeup ready on %s", NativeStreamConduit.this);
                     if (allAreClear(state, READ_RESUMED)) {
-                        state = NativeStreamConduit.this.state = state | READ_RESUMED;
                         thread.doResume(NativeStreamConduit.this, true, allAreSet(state, WRITE_RESUMED), true);
                     }
-                    state = NativeStreamConduit.this.state = state & ~READ_WAKEUP;
+                    state = NativeStreamConduit.this.state = state & ~READ_WAKEUP | READ_RESUMED;
                 }
                 if (allAreSet(state, READ_RESUMED)) {
                     try {
