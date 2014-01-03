@@ -364,8 +364,8 @@ final class EPollMap extends AbstractCollection<EPollRegistration> {
                             }
                         }
                         itemIdx = 0;
-                        rowIdx++;
                     }
+                    rowIdx++;
                 }
                 return false;
             } else {
