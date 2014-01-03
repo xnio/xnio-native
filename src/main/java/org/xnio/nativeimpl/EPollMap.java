@@ -263,7 +263,9 @@ final class EPollMap extends AbstractCollection<EPollRegistration> {
 
         EPollRegistration[] row = table[idx];
         if (row == null) {
-            grow();
+            if (grow()) {
+                table = this.table;
+            }
             table[idx] = new EPollRegistration[3];
             table[idx][0] = value;
             return null;
@@ -283,25 +285,30 @@ final class EPollMap extends AbstractCollection<EPollRegistration> {
                 return item;
             }
         }
+        
+        // Search again when grown
+        if (grow()) {
+            return doPut(value, ifAbsent);
+        }
+
         if (s != -1) {
-            grow();
             row[s] = value;
             return null;
         }
-        grow();
         row = Arrays.copyOf(row, rowLength + 2);
         row[rowLength] = value;
         table[idx] = row;
         return null;
     }
 
-    private void grow() {
+    private boolean grow() {
         if (size == Integer.MAX_VALUE) {
             throw new IllegalStateException("Table full");
         }
         if (size ++ < threshold || threshold == Integer.MAX_VALUE) {
-            return;
+            return false;
         }
+
         final EPollRegistration[][] oldTable = table;
         final int oldLen = oldTable.length;
         assert Integer.bitCount(oldLen) == 1;
@@ -326,6 +333,7 @@ final class EPollMap extends AbstractCollection<EPollRegistration> {
         }
         table = newTable;
         threshold = (int) (newTable.length * loadFactor);
+        return true;
     }
 
     private EPollRegistration doGet(final int key) {
