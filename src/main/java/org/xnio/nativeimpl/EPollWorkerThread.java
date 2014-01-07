@@ -117,13 +117,13 @@ final class EPollWorkerThread extends NativeWorkerThread {
                         channel = reg.channel;
                         if (channel != null) {
                             if (Native.EXTRA_TRACE) epollLog.tracef("Channel %s is ready", channel);
-                            if (write) {
-                                epollLog.tracef("Channel %s is ready (write)", channel);
-                                channel.handleWriteReady();
-                            }
                             if (read) {
                                 epollLog.tracef("Channel %s is ready (read)", channel);
                                 channel.handleReadReady();
+                            }
+                            if (write) {
+                                epollLog.tracef("Channel %s is ready (write)", channel);
+                                channel.handleWriteReady();
                             }
                         }
                     } else {
