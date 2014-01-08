@@ -57,7 +57,7 @@ final class TcpServer extends NativeAcceptChannel<TcpServer> implements Acceptin
         }
         if (optionMap.contains(Options.TCP_NODELAY)) {
             Native.testAndThrow(Native.setOptTcpNoDelay(fd, optionMap.get(Options.TCP_NODELAY, false)));
-        } 
+        }
     }
 
     public XnioExecutor getAcceptThread() {

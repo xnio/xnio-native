@@ -87,6 +87,9 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     NativeAcceptChannel(final NativeXnioWorker worker, final int fd, final OptionMap optionMap) throws IOException {
         this.worker = worker;
         this.fd = fd;
+        if (optionMap.contains(Options.RECEIVE_BUFFER)) {
+            Native.testAndThrow(Native.setOptSendBuffer(fd, optionMap.get(Options.RECEIVE_BUFFER, -1)));
+        }
         localAddress = Native.getSocketAddress(Native.getSockName(fd));
         final NativeWorkerThread[] threads = worker.getAll();
         final int threadCount = threads.length;

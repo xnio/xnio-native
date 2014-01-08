@@ -39,6 +39,7 @@ import org.xnio.FutureResult;
 import org.xnio.IoFuture;
 import org.xnio.LocalSocketAddress;
 import org.xnio.OptionMap;
+import org.xnio.Options;
 import org.xnio.StreamConnection;
 import org.xnio.XnioExecutor;
 import org.xnio.XnioIoFactory;
@@ -100,6 +101,20 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
         try {
             boolean ok = false;
             final int fd = streamSocket(destination);
+            if (optionMap.contains(Options.KEEP_ALIVE)) {
+                Native.testAndThrow(Native.setOptKeepAlive(fd, optionMap.get(Options.KEEP_ALIVE, false)));
+            }
+            if (optionMap.contains(Options.RECEIVE_BUFFER)) {
+                Native.testAndThrow(Native.setOptSendBuffer(fd, optionMap.get(Options.RECEIVE_BUFFER, -1)));
+            }
+            if (destination instanceof InetSocketAddress) {
+                if (optionMap.contains(Options.TCP_OOB_INLINE)) {
+                    Native.testAndThrow(Native.setOptOobInline(fd, optionMap.get(Options.TCP_OOB_INLINE, false)));
+                }
+                if (optionMap.contains(Options.TCP_NODELAY)) {
+                    Native.testAndThrow(Native.setOptTcpNoDelay(fd, optionMap.get(Options.TCP_NODELAY, false)));
+                }
+            }
             try {
                 Native.listen(fd, 1);
                 final NativeDescriptor listener = new NativeDescriptor(this, fd) {
@@ -117,6 +132,9 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
                             final NativeStreamConnection connection = destination instanceof LocalSocketAddress ? new UnixConnection(NativeWorkerThread.this, nfd, null) : new TcpConnection(NativeWorkerThread.this, nfd, null);
                             final NativeStreamConduit conduit = connection.getConduit();
                             try {
+                                if (optionMap.contains(Options.SEND_BUFFER)) {
+                                    Native.testAndThrow(Native.setOptSendBuffer(fd, optionMap.get(Options.SEND_BUFFER, -1)));
+                                }
                                 register(conduit);
                             } catch (IOException e) {
                                 if (futureResult.setException(e)) {
@@ -174,6 +192,21 @@ abstract class NativeWorkerThread extends XnioIoThread implements XnioExecutor {
         boolean ok = false;
         try {
             final int fd = streamSocket(destinationAddress);
+            if (optionMap.contains(Options.KEEP_ALIVE)) {
+                Native.testAndThrow(Native.setOptKeepAlive(fd, optionMap.get(Options.KEEP_ALIVE, false)));
+            }
+            if (optionMap.contains(Options.TCP_OOB_INLINE)) {
+                Native.testAndThrow(Native.setOptOobInline(fd, optionMap.get(Options.TCP_OOB_INLINE, false)));
+            }
+            if (optionMap.contains(Options.TCP_NODELAY)) {
+                Native.testAndThrow(Native.setOptTcpNoDelay(fd, optionMap.get(Options.TCP_NODELAY, false)));
+            }
+            if (optionMap.contains(Options.SEND_BUFFER)) {
+                Native.testAndThrow(Native.setOptSendBuffer(fd, optionMap.get(Options.SEND_BUFFER, -1)));
+            }
+            if (optionMap.contains(Options.RECEIVE_BUFFER)) {
+                Native.testAndThrow(Native.setOptSendBuffer(fd, optionMap.get(Options.RECEIVE_BUFFER, -1)));
+            }
             try {
                 final NativeStreamConnection connection = destinationAddress instanceof LocalSocketAddress ? new UnixConnection(this, fd, null) : new TcpConnection(this, fd, null);
                 final NativeStreamConduit conduit = connection.getConduit();
