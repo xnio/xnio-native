@@ -25,7 +25,7 @@
     <name>XNIO Native Implementation</name>
     <groupId>org.jboss.xnio</groupId>
     <artifactId>xnio-native</artifactId>
-    <version>1.0.0.Beta1</version>
+    <version>1.0.0.Beta2-SNAPSHOT</version>
 
     <parent>
         <groupId>org.jboss</groupId>
