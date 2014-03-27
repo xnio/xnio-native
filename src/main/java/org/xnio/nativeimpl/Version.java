@@ -67,9 +67,7 @@ public final class Version {
                         }
                     } finally {
                         try {
-                            if (stream != null) {
-                                stream.close();
-                            }
+                            stream.close();
                         } catch (Throwable ignored) {
                         }
                     }
