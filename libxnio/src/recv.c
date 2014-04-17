@@ -8,7 +8,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 
-JNIEXPORT jint JNICALL xnio_native(recvDirect)(JNIEnv *env, jclass clazz, jint fd, jobject bufferObj, jintArray posAndLimit, jbyteArray srcAddrArray, jbyteArray destAddrArray) {
+JNIEXPORT jint JNICALL xnio_native(recvDirect)(JNIEnv *env, jclass clazz, jint fd, jobject bufferObj, jintArray posAndLimit, jbyteArray srcAddrArray, jbyteArray destAddrArray, jobject preserve) {
     jint position, limit;
     void *buffer = (*env)->GetDirectBufferAddress(env, bufferObj);
     if (! buffer) {
@@ -93,7 +93,7 @@ JNIEXPORT jint JNICALL xnio_native(recvDirect)(JNIEnv *env, jclass clazz, jint f
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(recvDirectScatter)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray) {
+JNIEXPORT jlong JNICALL xnio_native(recvDirectScatter)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray, jobject preserve) {
     struct iovec iov[len];
     ssize_t res;
     union sockaddr_any src = {};
@@ -197,7 +197,7 @@ fail0:
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(recvHeap)(JNIEnv *env, jclass clazz, jint fd, jbyteArray bufferObj, jintArray posAndLimit) {
+JNIEXPORT jint JNICALL xnio_native(recvHeap)(JNIEnv *env, jclass clazz, jint fd, jbyteArray bufferObj, jintArray posAndLimit, jobject preserve) {
     jint position, limit;
     union sockaddr_any src = {};
     union sockaddr_any dest = {};
@@ -280,7 +280,7 @@ JNIEXPORT jint JNICALL xnio_native(recvHeap)(JNIEnv *env, jclass clazz, jint fd,
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(recvHeapScatter)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray) {
+JNIEXPORT jlong JNICALL xnio_native(recvHeapScatter)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray, jobject preserve) {
     struct iovec iov[len];
     ssize_t res;
     union sockaddr_any src = {};

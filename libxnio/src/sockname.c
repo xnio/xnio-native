@@ -127,7 +127,7 @@ jint decode(JNIEnv *env, jbyteArray src, union sockaddr_any *dest) {
     }
 }
 
-JNIEXPORT jbyteArray JNICALL xnio_native(getSockName)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jbyteArray JNICALL xnio_native(getSockName)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     union sockaddr_any addr;
     socklen_t addrlen = sizeof addr;
     if (getsockname(fd, &addr.addr, &addrlen) < 0) {
@@ -139,7 +139,7 @@ JNIEXPORT jbyteArray JNICALL xnio_native(getSockName)(JNIEnv *env, jclass clazz,
     return convert(env, &addr);
 }
 
-JNIEXPORT jbyteArray JNICALL xnio_native(getPeerName)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jbyteArray JNICALL xnio_native(getPeerName)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     union sockaddr_any addr;
     socklen_t addrlen = sizeof addr;
     if (getpeername(fd, &addr.addr, &addrlen) < 0) {

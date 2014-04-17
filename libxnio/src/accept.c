@@ -9,7 +9,7 @@
 
 extern int accept4(int, struct sockaddr *, socklen_t *, int) weak;
 
-JNIEXPORT jint JNICALL xnio_native(accept)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jint JNICALL xnio_native(accept)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     jint nfd;
     if (accept4) {
         if ((nfd = accept4(fd, NULL, 0, SOCK_NONBLOCK | SOCK_CLOEXEC)) == -1) {

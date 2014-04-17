@@ -7,7 +7,7 @@
 
 extern int ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *) weak;
 
-JNIEXPORT jint JNICALL xnio_native(await2)(JNIEnv *env, jclass clazz, jint fd, jboolean writes) {
+JNIEXPORT jint JNICALL xnio_native(await2)(JNIEnv *env, jclass clazz, jint fd, jboolean writes, jobject preserve) {
     struct pollfd fds = { .fd = fd, .events = writes ? POLLOUT | POLLERR | POLLHUP | POLLNVAL : POLLIN | POLLRDHUP };
 //    if (ppoll) {
 //        struct timespec ts = { tv_sec = -1, tv_nsec = -1 };
@@ -24,7 +24,7 @@ JNIEXPORT jint JNICALL xnio_native(await2)(JNIEnv *env, jclass clazz, jint fd, j
     return 0;
 }
 
-JNIEXPORT jint JNICALL xnio_native(await3)(JNIEnv *env, jclass clazz, jint fd, jboolean writes, jlong millis) {
+JNIEXPORT jint JNICALL xnio_native(await3)(JNIEnv *env, jclass clazz, jint fd, jboolean writes, jlong millis, jobject preserve) {
     struct pollfd fds = { .fd = fd, .events = writes ? POLLOUT | POLLERR | POLLHUP | POLLNVAL : POLLIN | POLLRDHUP };
 //    if (ppoll) {
 //        struct timespec ts = { tv_sec = -1, tv_nsec = -1 };

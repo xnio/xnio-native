@@ -26,7 +26,7 @@ jfieldID ByteBuffer_offset;
 jfieldID FileChannelImpl_fd;
 jfieldID FileDescriptor_fd;
 
-JNIEXPORT jintArray JNICALL xnio_native(init)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jintArray JNICALL xnio_native(init)(JNIEnv *env, jclass clazz, jobject preserve) {
     jclass Buffer = (*env)->FindClass(env, "java/nio/Buffer");
     if (! Buffer) {
         return 0;

@@ -36,11 +36,11 @@ failed: {
     }
 }
 
-JNIEXPORT jint JNICALL xnio_native(socketTcp)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(socketTcp)(JNIEnv *env, jclass clazz, jobject preserve) {
     return create_socket(AF_INET, SOCK_STREAM);
 }
 
-JNIEXPORT jint JNICALL xnio_native(socketUdp)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(socketUdp)(JNIEnv *env, jclass clazz, jobject preserve) {
     jint fd = create_socket(AF_INET, SOCK_DGRAM);
     if (fd >= 0) {
         const int on = 1;
@@ -67,11 +67,11 @@ JNIEXPORT jint JNICALL xnio_native(socketUdp)(JNIEnv *env, jclass clazz) {
     return fd;
 }
 
-JNIEXPORT jint JNICALL xnio_native(socketTcp6)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(socketTcp6)(JNIEnv *env, jclass clazz, jobject preserve) {
     return create_socket(AF_INET6, SOCK_STREAM);
 }
 
-JNIEXPORT jint JNICALL xnio_native(socketUdp6)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(socketUdp6)(JNIEnv *env, jclass clazz, jobject preserve) {
     jint fd = create_socket(AF_INET6, SOCK_DGRAM);
     if (fd >= 0) {
         const int on = 1;
@@ -86,11 +86,11 @@ JNIEXPORT jint JNICALL xnio_native(socketUdp6)(JNIEnv *env, jclass clazz) {
     return fd;
 }
 
-JNIEXPORT jint JNICALL xnio_native(socketLocalStream)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(socketLocalStream)(JNIEnv *env, jclass clazz, jobject preserve) {
     return create_socket(AF_UNIX, SOCK_STREAM);
 }
 
-JNIEXPORT jint JNICALL xnio_native(socketLocalDatagram)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(socketLocalDatagram)(JNIEnv *env, jclass clazz, jobject preserve) {
     return create_socket(AF_UNIX, SOCK_DGRAM);
 }
 

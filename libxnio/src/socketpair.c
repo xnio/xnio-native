@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-JNIEXPORT jint JNICALL xnio_native(socketPair)(JNIEnv *env, jclass clazz, jintArray jfds) {
+JNIEXPORT jint JNICALL xnio_native(socketPair)(JNIEnv *env, jclass clazz, jintArray jfds, jobject preserve) {
     int fds[2];
 #if defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
     if (socketpair(AF_LOCAL, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, fds) == -1) {

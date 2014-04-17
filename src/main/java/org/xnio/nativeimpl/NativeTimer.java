@@ -40,7 +40,7 @@ final class NativeTimer extends NativeDescriptor implements XnioExecutor.Key {
     public boolean remove() {
         if (canRun.getAndSet(false)) {
             unregister();
-            Native.close(fd);
+            Native.close(fd, null);
             return true;
         } else {
             return false;
@@ -51,13 +51,13 @@ final class NativeTimer extends NativeDescriptor implements XnioExecutor.Key {
         if (oneShot) {
             if (canRun.getAndSet(false)) {
                 unregister();
-                Native.close(fd);
+                Native.close(fd, null);
             }
         } else if (! canRun.get()) {
             return;
         }
         try {
-            Native.readTimer(fd);
+            Native.readTimer(fd, null);
             task.run();
         } catch (Throwable ignored) {
         }

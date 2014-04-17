@@ -43,7 +43,7 @@ final class TcpConnection extends NativeStreamConnection {
 
     public <T> T getOption(final Option<T> option) throws IOException {
         if (option == Options.RECEIVE_BUFFER) {
-            return option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd))));
+            return option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd, this))));
         } else {
             return super.getOption(option);
         }
@@ -51,8 +51,8 @@ final class TcpConnection extends NativeStreamConnection {
 
     public <T> T setOption(final Option<T> option, final T value) throws IllegalArgumentException, IOException {
         if (option == Options.RECEIVE_BUFFER) {
-            T old = option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd))));
-            Native.testAndThrow(Native.setOptReceiveBuffer(fd, Options.RECEIVE_BUFFER.cast(value).intValue()));
+            T old = option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd, this))));
+            Native.testAndThrow(Native.setOptReceiveBuffer(fd, Options.RECEIVE_BUFFER.cast(value).intValue(), this));
             return old;
         } else {
             return super.setOption(option, value);

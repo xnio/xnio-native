@@ -5,7 +5,7 @@
 #include <sys/uio.h>
 #include <errno.h>
 
-JNIEXPORT jlong JNICALL xnio_native(readLong)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jlong JNICALL xnio_native(readLong)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     jlong val;
     ssize_t res;
     while ((res = read(fd, &val, sizeof val)) == -1) {
@@ -17,7 +17,7 @@ JNIEXPORT jlong JNICALL xnio_native(readLong)(JNIEnv *env, jclass clazz, jint fd
     return val;
 }
 
-JNIEXPORT jint JNICALL xnio_native(readD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1) {
+JNIEXPORT jint JNICALL xnio_native(readD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject preserve) {
     void *buffer = (*env)->GetDirectBufferAddress(env, b1);
     if (! buffer) {
         return -EINVAL;
@@ -32,7 +32,7 @@ JNIEXPORT jint JNICALL xnio_native(readD)(JNIEnv *env, jclass clazz, jint fd, jo
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(readDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2) {
+JNIEXPORT jlong JNICALL xnio_native(readDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2, jobject preserve) {
     struct iovec iov[2];
     void *buffer1 = (*env)->GetDirectBufferAddress(env, b1);
     if (! buffer1) {
@@ -56,7 +56,7 @@ JNIEXPORT jlong JNICALL xnio_native(readDD)(JNIEnv *env, jclass clazz, jint fd, 
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(readDDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2, jobject b3, jint p3, jint l3) {
+JNIEXPORT jlong JNICALL xnio_native(readDDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2, jobject b3, jint p3, jint l3, jobject preserve) {
     struct iovec iov[3];
     void *buffer1 = (*env)->GetDirectBufferAddress(env, b1);
     if (! buffer1) {
@@ -86,7 +86,7 @@ JNIEXPORT jlong JNICALL xnio_native(readDDD)(JNIEnv *env, jclass clazz, jint fd,
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(readH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1) {
+JNIEXPORT jint JNICALL xnio_native(readH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jobject preserve) {
     jbyte *buffer = (*env)->GetByteArrayElements(env, b1, 0);
     if (! buffer) {
         return -ENOMEM;
@@ -103,7 +103,7 @@ JNIEXPORT jint JNICALL xnio_native(readH)(JNIEnv *env, jclass clazz, jint fd, jb
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(readHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2) {
+JNIEXPORT jint JNICALL xnio_native(readHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2, jobject preserve) {
     struct iovec iov[2];
     jbyte *buffer1 = (*env)->GetByteArrayElements(env, b1, 0);
     if (! buffer1) {
@@ -132,7 +132,7 @@ JNIEXPORT jint JNICALL xnio_native(readHH)(JNIEnv *env, jclass clazz, jint fd, j
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(readHHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2, jbyteArray b3, jint p3, jint l3) {
+JNIEXPORT jint JNICALL xnio_native(readHHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2, jbyteArray b3, jint p3, jint l3, jobject preserve) {
     struct iovec iov[3];
     jbyte *buffer1 = (*env)->GetByteArrayElements(env, b1, 0);
     if (! buffer1) {
@@ -219,7 +219,7 @@ static jlong readMisc_internal(JNIEnv *env, jclass clazz, jint fd, jobjectArray 
     // not reachable
 }
 
-JNIEXPORT jlong JNICALL xnio_native(readMisc)(JNIEnv *env, jclass clazz, jint fd, jobjectArray buffers, jint offs, jint len) {
+JNIEXPORT jlong JNICALL xnio_native(readMisc)(JNIEnv *env, jclass clazz, jint fd, jobjectArray buffers, jint offs, jint len, jobject preserve) {
     struct iovec iov[len];
     return readMisc_internal(env, clazz, fd, buffers, offs, len, 0, iov);
 }

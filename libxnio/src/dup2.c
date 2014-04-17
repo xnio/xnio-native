@@ -7,7 +7,7 @@
 
 extern int dup3(int, int, int) weak;
 
-JNIEXPORT jint JNICALL xnio_native(dup2)(JNIEnv *env, jclass clazz, jint oldFD, jint newFD) {
+JNIEXPORT jint JNICALL xnio_native(dup2)(JNIEnv *env, jclass clazz, jint oldFD, jint newFD, jobject preserve) {
     if (dup3) {
         if (dup3(oldFD, newFD, O_CLOEXEC) < 0) {
             return -errno;

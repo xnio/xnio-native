@@ -8,7 +8,7 @@
 
 extern int eventfd(int, int) weak;
 
-JNIEXPORT jint JNICALL xnio_native(eventFD)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(eventFD)(JNIEnv *env, jclass clazz, jobject preserve) {
     int fd;
     if (eventfd) {
 #if defined(EFD_CLOEXEC) && defined(EFD_NONBLOCK)

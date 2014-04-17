@@ -5,7 +5,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-JNIEXPORT jint JNICALL xnio_native(connect)(JNIEnv *env, jclass clazz, jint fd, jbyteArray destArray) {
+JNIEXPORT jint JNICALL xnio_native(connect)(JNIEnv *env, jclass clazz, jint fd, jbyteArray destArray, jobject preserve) {
     union sockaddr_any addr;
     jint res;
     res = decode(env, destArray, &addr);
@@ -35,7 +35,7 @@ JNIEXPORT jint JNICALL xnio_native(connect)(JNIEnv *env, jclass clazz, jint fd, 
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(finishConnect)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jint JNICALL xnio_native(finishConnect)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     int res = 0;
     socklen_t len = sizeof res;
     int r2 = getsockopt(fd, SOL_SOCKET, SO_ERROR, &res, &len);

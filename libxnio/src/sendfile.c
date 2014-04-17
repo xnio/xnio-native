@@ -8,7 +8,7 @@
 
 extern ssize_t sendfile(int, int, off_t *, size_t) weak;
 
-JNIEXPORT jint JNICALL xnio_native(sendfile)(JNIEnv *env, jclass clazz, jint destFd, jobject fileChannel, jlong offset, jlong length) {
+JNIEXPORT jint JNICALL xnio_native(sendfile)(JNIEnv *env, jclass clazz, jint destFd, jobject fileChannel, jlong offset, jlong length, jobject preserve) {
     ssize_t res;
     off_t off = offset;
     jobject fileDescriptor = (*env)->GetObjectField(env, fileChannel, FileChannelImpl_fd);

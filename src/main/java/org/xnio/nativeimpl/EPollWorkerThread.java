@@ -45,20 +45,20 @@ final class EPollWorkerThread extends NativeWorkerThread {
     EPollWorkerThread(final NativeXnioWorker worker, final int threadNumber, final String name, final ThreadGroup group, final long stackSize) throws IOException {
         super(worker, threadNumber, name, group, stackSize);
         boolean ok = false;
-        epfd = Native.testAndThrow(Native.epollCreate());
+        epfd = Native.testAndThrow(Native.epollCreate(null));
         try {
-            evfd = Native.testAndThrow(Native.eventFD());
+            evfd = Native.testAndThrow(Native.eventFD(null));
             try {
-                Native.testAndThrow(Native.epollCtlAdd(epfd, evfd, Native.EPOLL_FLAG_READ | Native.EPOLL_FLAG_EDGE, 0));
+                Native.testAndThrow(Native.epollCtlAdd(epfd, evfd, Native.EPOLL_FLAG_READ | Native.EPOLL_FLAG_EDGE, 0, null));
                 ok = true;
             } finally {
                 if (! ok) {
-                    Native.close(evfd);
+                    Native.close(evfd, null);
                 }
             }
         } finally {
             if (! ok) {
-                Native.close(epfd);
+                Native.close(epfd, null);
             }
         }
         new FdRef<EPollWorkerThread>(this, epfd);
@@ -67,8 +67,8 @@ final class EPollWorkerThread extends NativeWorkerThread {
 
     void close() {
         epollLog.tracef("Closing %s", this);
-        Native.dup2(Native.DEAD_FD, evfd);
-        Native.dup2(Native.DEAD_FD, epfd);
+        Native.dup2(Native.DEAD_FD, evfd, null);
+        Native.dup2(Native.DEAD_FD, epfd, null);
     }
 
     void doWakeup() {
@@ -86,7 +86,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
         try {
             do {
                 epollLog.tracef("Starting epoll");
-                res = Native.epollWait(epfd, events, (int) Math.min((long) Integer.MAX_VALUE, delayTimeMillis));
+                res = Native.epollWait(epfd, events, (int) Math.min((long) Integer.MAX_VALUE, delayTimeMillis), null);
             } while (res == -Native.EINTR);
             cnt = Native.testAndThrow(res);
             if (Native.EXTRA_TRACE) epollLog.tracef("Epoll returned %d events", cnt);
@@ -107,7 +107,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
                 if (id == 0) {
                     // wakeup
                     if (Native.EXTRA_TRACE) epollLog.tracef("Consuming wakeup on %s", this);
-                    Native.readLong(evfd);
+                    Native.readLong(evfd, null);
                 } else {
                     read = allAreSet(event, Native.EPOLL_FLAG_READ);
                     write = allAreSet(event, Native.EPOLL_FLAG_WRITE);
@@ -134,7 +134,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
             try {
                 do {
                     epollLog.tracef("Starting follow-up epoll");
-                    res = Native.epollWait(epfd, events, (int) Math.min((long) Integer.MAX_VALUE, 0));
+                    res = Native.epollWait(epfd, events, (int) Math.min((long) Integer.MAX_VALUE, 0), null);
                 } while (res == -Native.EINTR);
                 cnt = Native.testAndThrow(res);
                 if (Native.EXTRA_TRACE) epollLog.tracef("Epoll returned %d events", cnt);
@@ -148,7 +148,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
     public Key executeAfter(final Runnable command, final long time, final TimeUnit unit) {
         final int seconds = (int) Math.min(unit.toSeconds(time), (long)Integer.MAX_VALUE);
         final int nanos = (int) (unit.toNanos(time) % 1000000000L);
-        final int fd = Native.createTimer(seconds, nanos);
+        final int fd = Native.createTimer(seconds, nanos, null);
         if (fd < 0) {
             throw new RejectedExecutionException("Not enough resources to create timer");
         }
@@ -165,7 +165,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
             }
         } finally {
             if (! ok) {
-                Native.close(fd);
+                Native.close(fd, null);
             }
         }
     }
@@ -173,7 +173,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
     public Key executeAtInterval(final Runnable command, final long time, final TimeUnit unit) {
         final int seconds = (int) Math.min(unit.toSeconds(time), (long)Integer.MAX_VALUE);
         final int nanos = (int) (unit.toNanos(time) % 1000000000L);
-        final int fd = Native.createTimer(seconds, nanos);
+        final int fd = Native.createTimer(seconds, nanos, null);
         if (fd < 0) {
             throw new RejectedExecutionException("Not enough resources to create timer");
         }
@@ -190,7 +190,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
             }
         } finally {
             if (! ok) {
-                Native.close(fd);
+                Native.close(fd, null);
             }
         }
     }
@@ -207,7 +207,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
                 registration = new EPollRegistration(id, channel);
                 epollMap.add(registration);
             }
-            Native.testAndThrow(Native.epollCtlAdd(epfd, channel.fd, Native.EPOLL_FLAG_EDGE, id));
+            Native.testAndThrow(Native.epollCtlAdd(epfd, channel.fd, Native.EPOLL_FLAG_EDGE, id, null));
             ok = true;
         } finally {
             if (! ok) synchronized (epollMap) {
@@ -227,7 +227,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
         if (read) v |= Native.EPOLL_FLAG_READ;
         if (write) v |= Native.EPOLL_FLAG_WRITE;
         if (edge) v |= Native.EPOLL_FLAG_EDGE;
-        Native.epollCtlMod(epfd, fd, v, id);
+        Native.epollCtlMod(epfd, fd, v, id, null);
         if (currentThread() != this) {
             doWakeup();
         }
@@ -239,7 +239,7 @@ final class EPollWorkerThread extends NativeWorkerThread {
             final EPollRegistration registration = epollMap.removeKey(channel.id);
             if (registration != null) {
                 assert registration.channel == channel; // if not, we got a problem
-                Native.epollCtlDel(epfd, channel.fd);
+                Native.epollCtlDel(epfd, channel.fd, null);
                 // no need to wake up; worst outcome is a false positive which is no different
             }
         }

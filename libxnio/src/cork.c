@@ -11,7 +11,7 @@
 #ifdef __linux__
 #ifdef TCP_CORK
 
-JNIEXPORT jint JNICALL xnio_native(flushTcpCork)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jint JNICALL xnio_native(flushTcpCork)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     int cork = 0;
     int res;
     if ((res = setsockopt(fd, IPPROTO_TCP, TCP_CORK, &cork, sizeof cork)) == -1) {

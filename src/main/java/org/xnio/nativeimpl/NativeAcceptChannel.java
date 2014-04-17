@@ -88,9 +88,9 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
         this.worker = worker;
         this.fd = fd;
         if (optionMap.contains(Options.RECEIVE_BUFFER)) {
-            Native.testAndThrow(Native.setOptSendBuffer(fd, optionMap.get(Options.RECEIVE_BUFFER, -1)));
+            Native.testAndThrow(Native.setOptSendBuffer(fd, optionMap.get(Options.RECEIVE_BUFFER, -1), this));
         }
-        localAddress = Native.getSocketAddress(Native.getSockName(fd));
+        localAddress = Native.getSocketAddress(Native.getSockName(fd, this));
         final NativeWorkerThread[] threads = worker.getAll();
         final int threadCount = threads.length;
         if (threadCount == 0) {
@@ -212,7 +212,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
                 handle.unregister();
             }
             safeClose(mbeanHandle);
-            Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
+            Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd, this));
             new FdRef<NativeAcceptChannel>(this, fd);
         }
     }
@@ -231,11 +231,11 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
 
     public <T> T getOption(final Option<T> option) throws UnsupportedOptionException, IOException {
         if (option == Options.REUSE_ADDRESSES) {
-            return option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptReuseAddr(fd)) != 0));
+            return option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptReuseAddr(fd, this)) != 0));
         } else if (option == Options.RECEIVE_BUFFER) {
-            return option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd))));
+            return option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd, this))));
         } else if (option == Options.KEEP_ALIVE) {
-            return option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptKeepAlive(fd)) != 0));
+            return option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptKeepAlive(fd, this)) != 0));
         } else if (option == Options.CONNECTION_HIGH_WATER) {
             return option.cast(Integer.valueOf(getHighWater(connectionStatus)));
         } else if (option == Options.CONNECTION_LOW_WATER) {
@@ -248,16 +248,16 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
     public <T> T setOption(final Option<T> option, final T value) throws IllegalArgumentException, IOException {
         final T old;
         if (option == Options.REUSE_ADDRESSES) {
-            old = option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptReuseAddr(fd)) != 0));
-            Native.testAndThrow(Native.setOptReuseAddr(fd, Options.REUSE_ADDRESSES.cast(value).booleanValue()));
+            old = option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptReuseAddr(fd, this)) != 0));
+            Native.testAndThrow(Native.setOptReuseAddr(fd, Options.REUSE_ADDRESSES.cast(value).booleanValue(), this));
             return old;
         } else if (option == Options.RECEIVE_BUFFER) {
-            old = option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd)) != 0));
-            Native.testAndThrow(Native.setOptReceiveBuffer(fd, Options.RECEIVE_BUFFER.cast(value).intValue()));
+            old = option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptReceiveBuffer(fd, this)) != 0));
+            Native.testAndThrow(Native.setOptReceiveBuffer(fd, Options.RECEIVE_BUFFER.cast(value).intValue(), this));
             return old;
         } else if (option == Options.KEEP_ALIVE) {
-            old = option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptKeepAlive(fd)) != 0));
-            Native.testAndThrow(Native.setOptKeepAlive(fd, Options.REUSE_ADDRESSES.cast(value).booleanValue()));
+            old = option.cast(Boolean.valueOf(Native.testAndThrow(Native.getOptKeepAlive(fd, this)) != 0));
+            Native.testAndThrow(Native.setOptKeepAlive(fd, Options.REUSE_ADDRESSES.cast(value).booleanValue(), this));
             return old;
         } else if (option == Options.CONNECTION_HIGH_WATER) {
             return option.cast(Integer.valueOf(getHighWater(updateWaterMark(-1, Options.CONNECTION_HIGH_WATER.cast(value, Integer.valueOf((int) (CONN_HIGH_MASK >> CONN_HIGH_BIT))).intValue()))));
@@ -333,7 +333,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
             log.tracef("Connections full on %s", this);
             return null;
         }
-        final int accepted = Native.accept(fd);
+        final int accepted = Native.accept(fd, this);
         boolean ok = false;
         try {
             if (accepted == -Native.EAGAIN) {
@@ -351,7 +351,7 @@ abstract class NativeAcceptChannel<C extends NativeAcceptChannel<C>> implements 
                 ok = true;
                 return newConnection;
             } finally {
-                if (! ok) Native.close(accepted);
+                if (! ok) Native.close(accepted, this);
             }
         } finally {
             if (! ok) {

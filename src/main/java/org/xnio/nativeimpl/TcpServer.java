@@ -48,15 +48,15 @@ final class TcpServer extends NativeAcceptChannel<TcpServer> implements Acceptin
         if (threadCount == 0) {
             throw log.noThreads();
         }
-        Native.testAndThrow(Native.setOptReuseAddr(fd, optionMap.get(Options.REUSE_ADDRESSES, true)));
+        Native.testAndThrow(Native.setOptReuseAddr(fd, optionMap.get(Options.REUSE_ADDRESSES, true), this));
         if (optionMap.contains(Options.KEEP_ALIVE)) {
-            Native.testAndThrow(Native.setOptKeepAlive(fd, optionMap.get(Options.KEEP_ALIVE, false)));
+            Native.testAndThrow(Native.setOptKeepAlive(fd, optionMap.get(Options.KEEP_ALIVE, false), this));
         }
         if (optionMap.contains(Options.TCP_OOB_INLINE)) {
-            Native.testAndThrow(Native.setOptOobInline(fd, optionMap.get(Options.TCP_OOB_INLINE, false)));
+            Native.testAndThrow(Native.setOptOobInline(fd, optionMap.get(Options.TCP_OOB_INLINE, false), this));
         }
         if (optionMap.contains(Options.TCP_NODELAY)) {
-            Native.testAndThrow(Native.setOptTcpNoDelay(fd, optionMap.get(Options.TCP_NODELAY, false)));
+            Native.testAndThrow(Native.setOptTcpNoDelay(fd, optionMap.get(Options.TCP_NODELAY, false), this));
         }
     }
 

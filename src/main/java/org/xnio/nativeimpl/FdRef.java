@@ -37,7 +37,7 @@ final class FdRef<T> extends AutomaticReference<T> {
 
     protected void free() {
         Log.log.tracef("Freeing %s", this);
-        Native.close(fd);
+        Native.close(fd, null);
     }
 
     public String toString() {

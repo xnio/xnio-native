@@ -5,7 +5,7 @@
 #include <sys/uio.h>
 #include <errno.h>
 
-JNIEXPORT jint JNICALL xnio_native(sendDirect)(JNIEnv *env, jclass clazz, jint fd, jobject bufferObj, jintArray posAndLimit, jbyteArray destAddrArray) {
+JNIEXPORT jint JNICALL xnio_native(sendDirect)(JNIEnv *env, jclass clazz, jint fd, jobject bufferObj, jintArray posAndLimit, jbyteArray destAddrArray, jobject preserve) {
     union sockaddr_any dest;
     jint dres;
     dres = decode(env, destAddrArray, &dest);
@@ -35,7 +35,7 @@ JNIEXPORT jint JNICALL xnio_native(sendDirect)(JNIEnv *env, jclass clazz, jint f
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(sendDirectGather)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray, jbyteArray destAddrArray) {
+JNIEXPORT jlong JNICALL xnio_native(sendDirectGather)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray, jbyteArray destAddrArray, jobject preserve) {
     struct iovec iov[len];
     ssize_t res;
     union sockaddr_any dest;
@@ -100,7 +100,7 @@ fail0:
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(sendHeap)(JNIEnv *env, jclass clazz, jint fd, jbyteArray bufferObj, jintArray posAndLimit, jbyteArray destAddrArray) {
+JNIEXPORT jint JNICALL xnio_native(sendHeap)(JNIEnv *env, jclass clazz, jint fd, jbyteArray bufferObj, jintArray posAndLimit, jbyteArray destAddrArray, jobject preserve) {
     union sockaddr_any dest;
     jint dres;
     dres = decode(env, destAddrArray, &dest);
@@ -133,7 +133,7 @@ JNIEXPORT jint JNICALL xnio_native(sendHeap)(JNIEnv *env, jclass clazz, jint fd,
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(sendHeapGather)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray, jbyteArray destAddrArray) {
+JNIEXPORT jlong JNICALL xnio_native(sendHeapGather)(JNIEnv *env, jclass clazz, jint fd, jobjectArray bufferObjs, jint offs, jint len, jintArray posArray, jintArray limitArray, jbyteArray destAddrArray, jobject preserve) {
     struct iovec iov[len];
     ssize_t res;
     union sockaddr_any dest;

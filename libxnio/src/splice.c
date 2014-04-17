@@ -9,7 +9,7 @@
 
 extern ssize_t splice(int, loff_t *, int, loff_t *, size_t, unsigned int) weak;
 
-JNIEXPORT jlong JNICALL xnio_native(spliceToFile)(JNIEnv *env, jclass clazz, jint srcFd, jobject fileChannel, jlong offset, jlong length) {
+JNIEXPORT jlong JNICALL xnio_native(spliceToFile)(JNIEnv *env, jclass clazz, jint srcFd, jobject fileChannel, jlong offset, jlong length, jobject preserve) {
     ssize_t res;
     loff_t off = offset;
     jobject fileDescriptor = (*env)->GetObjectField(env, fileChannel, FileChannelImpl_fd);
@@ -30,7 +30,7 @@ JNIEXPORT jlong JNICALL xnio_native(spliceToFile)(JNIEnv *env, jclass clazz, jin
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(transfer)(JNIEnv *env, jclass clazz, jint srcFd, jlong count, jobject buffer, jint destFd) {
+JNIEXPORT jlong JNICALL xnio_native(transfer)(JNIEnv *env, jclass clazz, jint srcFd, jlong count, jobject buffer, jint destFd, jobject preserve) {
 
     ssize_t res;
 

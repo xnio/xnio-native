@@ -51,11 +51,11 @@ abstract class NativeStreamConnection extends StreamConnection {
     }
 
     public SocketAddress getPeerAddress() {
-        return Native.getSocketAddress(Native.getPeerName(fd));
+        return Native.getSocketAddress(Native.getPeerName(fd, this));
     }
 
     public SocketAddress getLocalAddress() {
-        return Native.getSocketAddress(Native.getSockName(fd));
+        return Native.getSocketAddress(Native.getSockName(fd, this));
     }
 
     NativeStreamConduit getConduit() {
@@ -78,7 +78,7 @@ abstract class NativeStreamConnection extends StreamConnection {
         } else if (option == Options.WRITE_TIMEOUT) {
             return option.cast(Integer.valueOf(conduit.getWriteTimeout()));
         } else if (option == Options.SEND_BUFFER) {
-            return option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptSendBuffer(fd))));
+            return option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptSendBuffer(fd, this))));
         } else {
             return super.getOption(option);
         }
@@ -90,8 +90,8 @@ abstract class NativeStreamConnection extends StreamConnection {
         } else if (option == Options.WRITE_TIMEOUT) {
             return option.cast(Integer.valueOf(conduit.getAndSetWriteTimeout(Options.WRITE_TIMEOUT.cast(value).intValue())));
         } else if (option == Options.SEND_BUFFER) {
-            T old = option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptSendBuffer(fd))));
-            Native.testAndThrow(Native.setOptSendBuffer(fd, Options.SEND_BUFFER.cast(value).intValue()));
+            T old = option.cast(Integer.valueOf(Native.testAndThrow(Native.getOptSendBuffer(fd, this))));
+            Native.testAndThrow(Native.setOptSendBuffer(fd, Options.SEND_BUFFER.cast(value).intValue(), this));
             return old;
         } else {
             return super.setOption(option, value);

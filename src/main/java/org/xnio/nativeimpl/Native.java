@@ -106,7 +106,7 @@ final class Native {
      * @param newFd the new FD
      * @return the result
      */
-    static native int dup2(int oldFd, int newFd);
+    static native int dup2(int oldFd, int newFd, Object keepAlive);
 
     /**
      * Call the UNIX dup system call.
@@ -114,7 +114,7 @@ final class Native {
      * @param oldFd the old FD
      * @return the new FD or error
      */
-    static native int dup(int oldFd);
+    static native int dup(int oldFd, Object keepAlive);
 
     /**
      * Close the FD.
@@ -122,7 +122,7 @@ final class Native {
      * @param fd the FD to close
      * @return 0 for okay, a negative error code for error
      */
-    static native int close(int fd);
+    static native int close(int fd, Object keepAlive);
 
     /**
      * Get a string for an error code.
@@ -140,36 +140,36 @@ final class Native {
      * @param write {@code true} to shut down writes
      * @return 0 for okay, a negative error code for error
      */
-    static native int shutdown(int fd, boolean read, boolean write);
+    static native int shutdown(int fd, boolean read, boolean write, Object keepAlive);
 
-    static native int await2(final int fd, final boolean writes);
+    static native int await2(final int fd, final boolean writes, Object keepAlive);
 
-    static native int await3(final int fd, final boolean writes, final long millis);
+    static native int await3(final int fd, final boolean writes, final long millis, Object keepAlive);
 
-    static native byte[] getSockName(final int fd);
+    static native byte[] getSockName(final int fd, Object keepAlive);
 
-    static native byte[] getPeerName(final int fd);
+    static native byte[] getPeerName(final int fd, Object keepAlive);
 
     // read
 
-    static native long readLong(final int fd);
+    static native long readLong(final int fd, Object keepAlive);
 
-    static native int readD(final int fd, ByteBuffer b1, int p1, int l1);
+    static native int readD(final int fd, ByteBuffer b1, int p1, int l1, Object keepAlive);
 
-    static native long readDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2);
+    static native long readDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2, Object keepAlive);
 
-    static native long readDDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2, ByteBuffer b3, int p3, int l3);
+    static native long readDDD(final int fd, ByteBuffer b1, int p1, int l1, ByteBuffer b2, int p2, int l2, ByteBuffer b3, int p3, int l3, Object keepAlive);
 
-    static native int readH(final int fd, byte[] b1, int p1, int l1);
+    static native int readH(final int fd, byte[] b1, int p1, int l1, Object keepAlive);
 
-    static native long readHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2);
+    static native long readHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2, Object keepAlive);
 
-    static native long readHHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2, byte[] b3, int p3, int l3);
+    static native long readHHH(final int fd, byte[] b1, int p1, int l1, byte[] b2, int p2, int l2, byte[] b3, int p3, int l3, Object keepAlive);
 
     // slower
-    static native long readMisc(final int fd, ByteBuffer[] buffers, int offs, int len);
+    static native long readMisc(final int fd, ByteBuffer[] buffers, int offs, int len, Object keepAlive);
 
-    static int readSingle(final int fd, ByteBuffer buf1) throws IOException {
+    static int readSingle(final int fd, ByteBuffer buf1, Object keepAlive) throws IOException {
         if (buf1.isReadOnly()) {
             throw new ReadOnlyBufferException();
         }
@@ -178,10 +178,10 @@ final class Native {
         final int lim1 = buf1.limit();
         if (pos1 == lim1) return 0;
         if (buf1.isDirect()) {
-            cnt = testAndThrowRead(readD(fd, buf1, pos1, lim1));
+            cnt = testAndThrowRead(readD(fd, buf1, pos1, lim1, keepAlive));
             if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
         } else {
-            cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + buf1.arrayOffset(), lim1 + buf1.arrayOffset()));
+            cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + buf1.arrayOffset(), lim1 + buf1.arrayOffset(), keepAlive));
             if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
         }
         if (cnt > 0) {
@@ -190,7 +190,7 @@ final class Native {
         return cnt;
     }
 
-    static long readScatter(final int fd, ByteBuffer[] buffers, int offs, int len) throws IOException {
+    static long readScatter(final int fd, ByteBuffer[] buffers, int offs, int len, Object keepAlive) throws IOException {
         if (len <= 0L) {
             if (EXTRA_TRACE) log.tracef("Read(%d): zero array length", fd);
             return 0L;
@@ -206,10 +206,10 @@ final class Native {
             if (pos1 == lim1) return 0;
             final int cnt;
             if (dir1) {
-                cnt = testAndThrowRead(readD(fd, buf1, pos1, lim1));
+                cnt = testAndThrowRead(readD(fd, buf1, pos1, lim1, keepAlive));
             } else {
                 final int off1 = buf1.arrayOffset();
-                cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + off1, lim1 + off1));
+                cnt = testAndThrowRead(readH(fd, buf1.array(), pos1 + off1, lim1 + off1, keepAlive));
             }
             if (cnt > 0) {
                 buf1.position(pos1 + cnt);
@@ -228,13 +228,13 @@ final class Native {
             if (pos1 == lim1 && pos2 == lim2) return 0;
             final long cnt;
             if (dir1 && dir2) {
-                cnt = testAndThrowRead(readDD(fd, buf1, pos1, lim1, buf2, pos2, lim2));
+                cnt = testAndThrowRead(readDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, keepAlive));
             } else if (!dir1 && !dir2) {
                 final int off1 = buf1.arrayOffset();
                 final int off2 = buf2.arrayOffset();
-                cnt = testAndThrowRead(readHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2));
+                cnt = testAndThrowRead(readHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, keepAlive));
             } else {
-                cnt = testAndThrowRead(readMisc(fd, buffers, offs, len));
+                cnt = testAndThrowRead(readMisc(fd, buffers, offs, len, keepAlive));
             }
             if (cnt > 0L) {
                 if (pos1 + cnt <= lim1) {
@@ -258,14 +258,14 @@ final class Native {
             if (pos1 == lim1 && pos2 == lim2 && pos3 == lim3) return 0;
             final long cnt;
             if (dir1 && dir2 && dir3) {
-                cnt = testAndThrowRead(readDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3));
+                cnt = testAndThrowRead(readDDD(fd, buf1, pos1, lim1, buf2, pos2, lim2, buf3, pos3, lim3, keepAlive));
             } else if (!dir1 && !dir2 && !dir3) {
                 final int off1 = buf1.arrayOffset();
                 final int off2 = buf2.arrayOffset();
                 final int off3 = buf3.arrayOffset();
-                cnt = testAndThrowRead(readHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3));
+                cnt = testAndThrowRead(readHHH(fd, buf1.array(), pos1 + off1, lim1 + off1, buf2.array(), pos2 + off2, lim2 + off2, buf3.array(), pos3 + off3, lim3 + off3, keepAlive));
             } else {
-                cnt = testAndThrowRead(readMisc(fd, buffers, offs, len));
+                cnt = testAndThrowRead(readMisc(fd, buffers, offs, len, keepAlive));
             }
             if (cnt > 0L) {
                 if (pos1 + cnt <= lim1) {
@@ -288,7 +288,7 @@ final class Native {
             }
         }
         if (! Buffers.hasRemaining(buffers, offs, len)) return 0;
-        final long cnt = testAndThrowRead(readMisc(fd, buffers, offs, len));
+        final long cnt = testAndThrowRead(readMisc(fd, buffers, offs, len, keepAlive));
         Buffers.trySkip(buffers, offs, len, cnt);
         if (EXTRA_TRACE) log.tracef("Read(%d): %d", fd, cnt);
         return cnt;
@@ -419,105 +419,105 @@ final class Native {
 
     // receive
 
-    static native int recvDirect(final int fd, ByteBuffer buffer, byte[] srcAddr, byte[] destAddr);
+    static native int recvDirect(final int fd, ByteBuffer buffer, byte[] srcAddr, byte[] destAddr, Object keepAlive);
 
-    static native int recvHeap(final int fd, byte[] bytes, int offs, int len, int pos, int lim, byte[] srcAddr, byte[] destAddr);
+    static native int recvHeap(final int fd, byte[] bytes, int offs, int len, int pos, int lim, byte[] srcAddr, byte[] destAddr, Object keepAlive);
 
-    static native int recvMisc(final int fd, ByteBuffer[] buffers, int offs, int len, byte[] srcAddr, byte[] destAddr);
+    static native int recvMisc(final int fd, ByteBuffer[] buffers, int offs, int len, byte[] srcAddr, byte[] destAddr, Object keepAlive);
 
     // send
 
-    static native int sendDirect(final int fd, ByteBuffer buffer, int[] posAndLimit, byte[] destAddr);
+    static native int sendDirect(final int fd, ByteBuffer buffer, int[] posAndLimit, byte[] destAddr, Object keepAlive);
 
-    static native int sendHeap(final int fd, byte[] bytes, int offs, int len, byte[] destAddr);
+    static native int sendHeap(final int fd, byte[] bytes, int offs, int len, byte[] destAddr, Object keepAlive);
 
-    static native int sendMisc(final int fd, ByteBuffer[] buffers, int offs, int len, byte[] destAddr);
+    static native int sendMisc(final int fd, ByteBuffer[] buffers, int offs, int len, byte[] destAddr, Object keepAlive);
 
     // transfer
 
-    static native long xferHeap(final int srcFd, byte[] bytes, int[] posAndLimit, int destFd);
+    static native long xferHeap(final int srcFd, byte[] bytes, int[] posAndLimit, int destFd, Object keepAlive);
 
-    static native long xferDirect(final int srcFd, ByteBuffer buffer, int[] posAndLimit, int destFd);
+    static native long xferDirect(final int srcFd, ByteBuffer buffer, int[] posAndLimit, int destFd, Object keepAlive);
 
-    static native long sendfile(final int dest, FileChannel src, long offset, long length);
+    static native long sendfile(final int dest, FileChannel src, long offset, long length, Object keepAlive);
 
     // util
 
-    static native int socketPair(int[] fds);
+    static native int socketPair(int[] fds, Object keepAlive);
 
-    static native int socketTcp();
+    static native int socketTcp(Object keepAlive);
 
-    static native int socketTcp6();
+    static native int socketTcp6(Object keepAlive);
 
-    static native int socketUdp();
+    static native int socketUdp(Object keepAlive);
 
-    static native int socketUdp6();
+    static native int socketUdp6(Object keepAlive);
 
-    static native int socketLocalStream();
+    static native int socketLocalStream(Object keepAlive);
 
-    static native int socketLocalDatagram();
+    static native int socketLocalDatagram(Object keepAlive);
 
-    static native int pipe(int[] fds);
+    static native int pipe(int[] fds, Object keepAlive);
 
-    static native int bind(int fd, byte[] address);
+    static native int bind(int fd, byte[] address, Object keepAlive);
 
-    static native int accept(int fd);
+    static native int accept(int fd, Object keepAlive);
 
-    static native int connect(int fd, byte[] peerAddress);
+    static native int connect(int fd, byte[] peerAddress, Object keepAlive);
 
-    static native int listen(int fd, int backlog);
+    static native int listen(int fd, int backlog, Object keepAlive);
 
-    static native int finishConnect(int fd);
+    static native int finishConnect(int fd, Object keepAlive);
 
     // options
 
-    static native int getOptBroadcast(int fd);
+    static native int getOptBroadcast(int fd, Object keepAlive);
 
-    static native int setOptBroadcast(int fd, boolean enabled);
+    static native int setOptBroadcast(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptDontRoute(int fd);
+    static native int getOptDontRoute(int fd, Object keepAlive);
 
-    static native int setOptDontRoute(int fd, boolean enabled);
+    static native int setOptDontRoute(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptKeepAlive(int fd);
+    static native int getOptKeepAlive(int fd, Object keepAlive);
 
-    static native int setOptKeepAlive(int fd, boolean enabled);
+    static native int setOptKeepAlive(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptCloseAbort(int fd);
+    static native int getOptCloseAbort(int fd, Object keepAlive);
 
-    static native int setOptCloseAbort(int fd, boolean enabled);
+    static native int setOptCloseAbort(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptOobInline(int fd);
+    static native int getOptOobInline(int fd, Object keepAlive);
 
-    static native int setOptOobInline(int fd, boolean enabled);
+    static native int setOptOobInline(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptReceiveBuffer(int fd);
+    static native int getOptReceiveBuffer(int fd, Object keepAlive);
 
-    static native int setOptReceiveBuffer(int fd, int size);
+    static native int setOptReceiveBuffer(int fd, int size, Object keepAlive);
 
-    static native int getOptReuseAddr(int fd);
+    static native int getOptReuseAddr(int fd, Object keepAlive);
 
-    static native int setOptReuseAddr(int fd, boolean enabled);
+    static native int setOptReuseAddr(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptSendBuffer(int fd);
+    static native int getOptSendBuffer(int fd, Object keepAlive);
 
-    static native int setOptSendBuffer(int fd, int size);
+    static native int setOptSendBuffer(int fd, int size, Object keepAlive);
 
-    static native int getOptDeferAccept(int fd);
+    static native int getOptDeferAccept(int fd, Object keepAlive);
 
-    static native int setOptDeferAccept(int fd, boolean enabled);
+    static native int setOptDeferAccept(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptMaxSegSize(int fd);
+    static native int getOptMaxSegSize(int fd, Object keepAlive);
 
-    static native int setOptMaxSegSize(int fd, int size);
+    static native int setOptMaxSegSize(int fd, int size, Object keepAlive);
 
-    static native int getOptTcpNoDelay(int fd);
+    static native int getOptTcpNoDelay(int fd, Object keepAlive);
 
-    static native int setOptTcpNoDelay(int fd, boolean enabled);
+    static native int setOptTcpNoDelay(int fd, boolean enabled, Object keepAlive);
 
-    static native int getOptMulticastTtl(int fd);
+    static native int getOptMulticastTtl(int fd, Object keepAlive);
 
-    static native int setOptMulticastTtl(int fd, boolean enabled);
+    static native int setOptMulticastTtl(int fd, boolean enabled, Object keepAlive);
 
     // linux
 
@@ -525,27 +525,27 @@ final class Native {
     static final int EPOLL_FLAG_WRITE   = 0b0000_0010;
     static final int EPOLL_FLAG_EDGE    = 0b0000_0100;
 
-    static native int eventFD();
+    static native int eventFD(Object keepAlive);
 
-    static native int epollCreate();
+    static native int epollCreate(Object keepAlive);
 
-    static native int epollWait(final int efd, long[] events, int timeout);
+    static native int epollWait(final int efd, long[] events, int timeout, Object keepAlive);
 
-    static native int epollCtlAdd(final int efd, final int fd, final int flags, final int id);
+    static native int epollCtlAdd(final int efd, final int fd, final int flags, final int id, Object keepAlive);
 
-    static native int epollCtlMod(final int efd, final int fd, final int flags, final int id);
+    static native int epollCtlMod(final int efd, final int fd, final int flags, final int id, Object keepAlive);
 
-    static native int epollCtlDel(final int efd, final int fd);
+    static native int epollCtlDel(final int efd, final int fd, Object keepAlive);
 
-    static native int createTimer(final int seconds, final int nanos);
+    static native int createTimer(final int seconds, final int nanos, Object keepAlive);
 
-    static native long spliceToFile(int src, FileChannel dest, long destOffs, long length);
+    static native long spliceToFile(int src, FileChannel dest, long destOffs, long length, Object keepAlive);
 
-    static native long transfer(final int srcFd, final long count, final ByteBuffer throughBuffer, final int destFd);
+    static native long transfer(final int srcFd, final long count, final ByteBuffer throughBuffer, final int destFd, Object keepAlive);
 
-    static native long tee(int src, int dest, long length, boolean more);
+    static native long tee(int src, int dest, long length, boolean more, Object keepAlive);
 
-    static native int readTimer(final int fd);
+    static native int readTimer(final int fd, Object keepAlive);
 
     // utilities
 

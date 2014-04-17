@@ -5,7 +5,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-JNIEXPORT jint JNICALL xnio_native(bind)(JNIEnv *env, jclass clazz, jint fd, jbyteArray bindArray) {
+JNIEXPORT jint JNICALL xnio_native(bind)(JNIEnv *env, jclass clazz, jint fd, jbyteArray bindArray, jobject preserve) {
     union sockaddr_any addr;
     jint res;
     res = decode(env, bindArray, &addr);

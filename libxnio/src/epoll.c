@@ -15,7 +15,7 @@ extern int epoll_wait(int, struct epoll_event *, int, int) weak;
 extern int epoll_pwait(int, struct epoll_event *, int, int, const sigset_t *) weak;
 extern int epoll_ctl(int, int, int, struct epoll_event *) weak;
 
-JNIEXPORT jint JNICALL xnio_native(epollCreate)(JNIEnv *env, jclass clazz) {
+JNIEXPORT jint JNICALL xnio_native(epollCreate)(JNIEnv *env, jclass clazz, jobject preserve) {
     jint fd;
     if (epoll_create1) {
         if ((fd = epoll_create1(EPOLL_CLOEXEC)) < 0) {
@@ -45,7 +45,7 @@ JNIEXPORT jint JNICALL xnio_native(epollCreate)(JNIEnv *env, jclass clazz) {
     return fd;
 }
 
-JNIEXPORT jint JNICALL xnio_native(epollWait)(JNIEnv *env, jclass clazz, jint efd, jlongArray eventArray, jint timeout) {
+JNIEXPORT jint JNICALL xnio_native(epollWait)(JNIEnv *env, jclass clazz, jint efd, jlongArray eventArray, jint timeout, jobject preserve) {
     int count = (*env)->GetArrayLength(env, eventArray);
     struct epoll_event events[count];
     int res = epoll_wait(efd, events, count, (int) timeout);
@@ -72,7 +72,7 @@ JNIEXPORT jint JNICALL xnio_native(epollWait)(JNIEnv *env, jclass clazz, jint ef
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(epollCtlAdd)(JNIEnv *env, jclass clazz, jint efd, jint fd, jint flags, jint id) {
+JNIEXPORT jint JNICALL xnio_native(epollCtlAdd)(JNIEnv *env, jclass clazz, jint efd, jint fd, jint flags, jint id, jobject preserve) {
     uint32_t events = 0;
     if (flags & XNIO_EPOLL_READ) {
         events |= EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
@@ -93,7 +93,7 @@ JNIEXPORT jint JNICALL xnio_native(epollCtlAdd)(JNIEnv *env, jclass clazz, jint 
     return 0;
 }
 
-JNIEXPORT jint JNICALL xnio_native(epollCtlMod)(JNIEnv *env, jclass clazz, jint efd, jint fd, jint flags, jint id) {
+JNIEXPORT jint JNICALL xnio_native(epollCtlMod)(JNIEnv *env, jclass clazz, jint efd, jint fd, jint flags, jint id, jobject preserve) {
     uint32_t events = 0;
     if (flags & XNIO_EPOLL_READ) {
         events |= EPOLLIN | EPOLLRDHUP | EPOLLERR | EPOLLHUP;
@@ -114,7 +114,7 @@ JNIEXPORT jint JNICALL xnio_native(epollCtlMod)(JNIEnv *env, jclass clazz, jint 
     return 0;
 }
 
-JNIEXPORT jint JNICALL xnio_native(epollCtlDel)(JNIEnv *env, jclass clazz, jint efd, jint fd) {
+JNIEXPORT jint JNICALL xnio_native(epollCtlDel)(JNIEnv *env, jclass clazz, jint efd, jint fd, jobject preserve) {
     struct epoll_event event = { 0 };
     if (epoll_ctl(efd, EPOLL_CTL_DEL, fd, &event) < 0) {
         return -errno;

@@ -11,7 +11,7 @@
 extern int timerfd_create(int, int) weak;
 extern int timerfd_settime(int, int, const struct itimerspec *, struct itimerspec *) weak;
 
-JNIEXPORT jint JNICALL xnio_native(createTimer)(JNIEnv *env, jclass clazz, jint seconds, jint nanos) {
+JNIEXPORT jint JNICALL xnio_native(createTimer)(JNIEnv *env, jclass clazz, jint seconds, jint nanos, jobject preserve) {
     int fd;
     int res;
     struct itimerspec ts = {
@@ -36,7 +36,7 @@ JNIEXPORT jint JNICALL xnio_native(createTimer)(JNIEnv *env, jclass clazz, jint 
     return fd;
 }
 
-JNIEXPORT jint JNICALL xnio_native(readTimer)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jint JNICALL xnio_native(readTimer)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     uint64_t val;
     ssize_t res;
     while ((res = read(fd, &val, sizeof val)) == -1) {

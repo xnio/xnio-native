@@ -49,7 +49,7 @@
     static native int setOptMulticastTtl(int fd, boolean enabled);
 */
 
-JNIEXPORT jint JNICALL xnio_native(getOptReuseAddr)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jint JNICALL xnio_native(getOptReuseAddr)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     int res;
     socklen_t len = sizeof res;
     int r2 = getsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &res, &len);
@@ -59,7 +59,7 @@ JNIEXPORT jint JNICALL xnio_native(getOptReuseAddr)(JNIEnv *env, jclass clazz, j
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(setOptReuseAddr)(JNIEnv *env, jclass clazz, jint fd, jboolean value) {
+JNIEXPORT jint JNICALL xnio_native(setOptReuseAddr)(JNIEnv *env, jclass clazz, jint fd, jboolean value, jobject preserve) {
     int v = (int) value;
     socklen_t len = sizeof v;
     int r2 = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &v, len);
@@ -69,7 +69,7 @@ JNIEXPORT jint JNICALL xnio_native(setOptReuseAddr)(JNIEnv *env, jclass clazz, j
     return 0;
 }
 
-JNIEXPORT jint JNICALL xnio_native(getOptTcpNoDelay)(JNIEnv *env, jclass clazz, jint fd) {
+JNIEXPORT jint JNICALL xnio_native(getOptTcpNoDelay)(JNIEnv *env, jclass clazz, jint fd, jobject preserve) {
     int res;
     socklen_t len = sizeof res;
     int r2 = getsockopt(fd, IPPROTO_IP, TCP_NODELAY, &res, &len);
@@ -79,7 +79,7 @@ JNIEXPORT jint JNICALL xnio_native(getOptTcpNoDelay)(JNIEnv *env, jclass clazz, 
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(setOptTcpNoDelay)(JNIEnv *env, jclass clazz, jint fd, jboolean value) {
+JNIEXPORT jint JNICALL xnio_native(setOptTcpNoDelay)(JNIEnv *env, jclass clazz, jint fd, jboolean value, jobject preserve) {
     int v = (int) value;
     socklen_t len = sizeof v;
     int r2 = setsockopt(fd, IPPROTO_IP, TCP_NODELAY, &v, len);

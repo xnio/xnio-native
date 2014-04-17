@@ -5,7 +5,7 @@
 #include <sys/uio.h>
 #include <errno.h>
 
-JNIEXPORT jint JNICALL xnio_native(writeLong)(JNIEnv *env, jclass clazz, jint fd, jlong value) {
+JNIEXPORT jint JNICALL xnio_native(writeLong)(JNIEnv *env, jclass clazz, jint fd, jlong value, jobject preserve) {
     ssize_t res;
     while ((res = write(fd, &value, sizeof value)) == -1) {
         int err = errno;
@@ -16,7 +16,7 @@ JNIEXPORT jint JNICALL xnio_native(writeLong)(JNIEnv *env, jclass clazz, jint fd
     return 0;
 }
 
-JNIEXPORT jint JNICALL xnio_native(writeD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1) {
+JNIEXPORT jint JNICALL xnio_native(writeD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject preserve) {
     void *buffer = (*env)->GetDirectBufferAddress(env, b1);
     if (! buffer) {
         return -EINVAL;
@@ -31,7 +31,7 @@ JNIEXPORT jint JNICALL xnio_native(writeD)(JNIEnv *env, jclass clazz, jint fd, j
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(writeDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2) {
+JNIEXPORT jlong JNICALL xnio_native(writeDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2, jobject preserve) {
     struct iovec iov[2];
     void *buffer1 = (*env)->GetDirectBufferAddress(env, b1);
     if (! buffer1) {
@@ -55,7 +55,7 @@ JNIEXPORT jlong JNICALL xnio_native(writeDD)(JNIEnv *env, jclass clazz, jint fd,
     return res;
 }
 
-JNIEXPORT jlong JNICALL xnio_native(writeDDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2, jobject b3, jint p3, jint l3) {
+JNIEXPORT jlong JNICALL xnio_native(writeDDD)(JNIEnv *env, jclass clazz, jint fd, jobject b1, jint p1, jint l1, jobject b2, jint p2, jint l2, jobject b3, jint p3, jint l3, jobject preserve) {
     struct iovec iov[3];
     void *buffer1 = (*env)->GetDirectBufferAddress(env, b1);
     if (! buffer1) {
@@ -85,7 +85,7 @@ JNIEXPORT jlong JNICALL xnio_native(writeDDD)(JNIEnv *env, jclass clazz, jint fd
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(writeH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1) {
+JNIEXPORT jint JNICALL xnio_native(writeH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jobject preserve) {
     jbyte *buffer = (*env)->GetByteArrayElements(env, b1, 0);
     if (! buffer) {
         return -ENOMEM;
@@ -102,7 +102,7 @@ JNIEXPORT jint JNICALL xnio_native(writeH)(JNIEnv *env, jclass clazz, jint fd, j
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(writeHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2) {
+JNIEXPORT jint JNICALL xnio_native(writeHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2, jobject preserve) {
     struct iovec iov[2];
     jbyte *buffer1 = (*env)->GetByteArrayElements(env, b1, 0);
     if (! buffer1) {
@@ -131,7 +131,7 @@ JNIEXPORT jint JNICALL xnio_native(writeHH)(JNIEnv *env, jclass clazz, jint fd, 
     return res;
 }
 
-JNIEXPORT jint JNICALL xnio_native(writeHHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2, jbyteArray b3, jint p3, jint l3) {
+JNIEXPORT jint JNICALL xnio_native(writeHHH)(JNIEnv *env, jclass clazz, jint fd, jbyteArray b1, jint p1, jint l1, jbyteArray b2, jint p2, jint l2, jbyteArray b3, jint p3, jint l3, jobject preserve) {
     struct iovec iov[3];
     jbyte *buffer1 = (*env)->GetByteArrayElements(env, b1, 0);
     if (! buffer1) {
@@ -218,7 +218,7 @@ static jlong writeMisc_internal(JNIEnv *env, jclass clazz, jint fd, jobjectArray
     // not reachable
 }
 
-JNIEXPORT jlong JNICALL xnio_native(writeMisc)(JNIEnv *env, jclass clazz, jint fd, jobjectArray buffers, jint offs, jint len) {
+JNIEXPORT jlong JNICALL xnio_native(writeMisc)(JNIEnv *env, jclass clazz, jint fd, jobjectArray buffers, jint offs, jint len, jobject preserve) {
     struct iovec iov[len];
     return writeMisc_internal(env, clazz, fd, buffers, offs, len, 0, iov);
 }

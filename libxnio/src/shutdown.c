@@ -4,7 +4,7 @@
 #include <sys/socket.h>
 #include <errno.h>
 
-JNIEXPORT jint JNICALL xnio_native(shutdown)(JNIEnv *env, jclass clazz, jint fd, jboolean rd, jboolean wr) {
+JNIEXPORT jint JNICALL xnio_native(shutdown)(JNIEnv *env, jclass clazz, jint fd, jboolean rd, jboolean wr, jobject preserve) {
     if (! rd && ! wr) {
         return -EINVAL;
     }

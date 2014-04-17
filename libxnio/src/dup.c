@@ -5,7 +5,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
-JNIEXPORT jint JNICALL xnio_native(dup)(JNIEnv *env, jclass clazz, jint oldFD) {
+JNIEXPORT jint JNICALL xnio_native(dup)(JNIEnv *env, jclass clazz, jint oldFD, jobject preserve) {
     jint newFD;
     if ((newFD = dup(oldFD)) < 0) {
         return -errno;

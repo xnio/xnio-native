@@ -7,7 +7,7 @@
 
 extern int pipe2(int[2], int) weak;
 
-JNIEXPORT jint JNICALL xnio_native(pipe)(JNIEnv *env, jclass clazz, jintArray jfds) {
+JNIEXPORT jint JNICALL xnio_native(pipe)(JNIEnv *env, jclass clazz, jintArray jfds, jobject preserve) {
     int fds[2];
     if (pipe2) {
         if (pipe2(fds, O_CLOEXEC | O_NONBLOCK) == -1) {

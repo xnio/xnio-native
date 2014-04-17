@@ -24,7 +24,6 @@ import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -176,46 +175,46 @@ final class NativeXnioWorker extends XnioWorker {
         final InetAddress address = bindAddress.getAddress();
         final int fd;
         if (address instanceof Inet4Address) {
-            fd = Native.socketTcp();
+            fd = Native.socketTcp(null);
         } else if (address instanceof Inet6Address) {
-            fd = Native.socketTcp6();
+            fd = Native.socketTcp6(null);
         } else {
             throw new IllegalArgumentException("Unknown address format");
         }
         Native.testAndThrow(fd);
-        Native.testAndThrow(Native.setOptReuseAddr(fd, optionMap.get(Options.REUSE_ADDRESSES, true)));
+        Native.testAndThrow(Native.setOptReuseAddr(fd, optionMap.get(Options.REUSE_ADDRESSES, true), null));
         boolean ok = false;
         try {
-            Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress)));
+            Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress), null));
             final TcpServer server = new TcpServer(this, fd, optionMap);
-            Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128)));
+            Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128), null));
             server.setAcceptListener(acceptListener);
             server.register();
             ok = true;
             return server;
         } finally {
             if (! ok) {
-                Native.close(fd);
+                Native.close(fd, null);
             }
         }
     }
 
     protected AcceptingChannel<StreamConnection> createLocalStreamConnectionServer(final LocalSocketAddress bindAddress, final ChannelListener<? super AcceptingChannel<StreamConnection>> acceptListener, final OptionMap optionMap) throws IOException {
         checkShutdown();
-        final int fd = Native.socketLocalStream();
+        final int fd = Native.socketLocalStream(null);
         Native.testAndThrow(fd);
         boolean ok = false;
         try {
-            Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress)));
+            Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress), null));
             final UnixServer server = new UnixServer(this, fd, optionMap);
-            Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128)));
+            Native.testAndThrow(Native.listen(fd, optionMap.get(Options.BACKLOG, 128), null));
             server.setAcceptListener(acceptListener);
             server.register();
             ok = true;
             return server;
         } finally {
             if (! ok) {
-                Native.close(fd);
+                Native.close(fd, null);
             }
         }
     }
@@ -227,9 +226,9 @@ final class NativeXnioWorker extends XnioWorker {
         final InetAddress address = bindAddress.getAddress();
         final int fd;
         if (address instanceof Inet4Address) {
-            fd = Native.testAndThrow(Native.socketUdp());
+            fd = Native.testAndThrow(Native.socketUdp(null));
         } else if (address instanceof Inet6Address) {
-            fd = Native.testAndThrow(Native.socketUdp6());
+            fd = Native.testAndThrow(Native.socketUdp6(null));
         } else {
             throw new IllegalArgumentException("Unknown address format");
         }
@@ -240,12 +239,12 @@ final class NativeXnioWorker extends XnioWorker {
 //            if (optionMap.contains(Options.RECEIVE_BUFFER))
 //            channel.socket().setReuseAddress(optionMap.get(Options.REUSE_ADDRESSES, true));
 //            if (optionMap.contains(Options.SEND_BUFFER))
-            Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress)));
+            Native.testAndThrow(Native.bind(fd, Native.encodeSocketAddress(bindAddress), null));
             ChannelListeners.invokeChannelListener(null, bindListener);
             return null;
         } finally {
             if (! ok) {
-                Native.close(fd);
+                Native.close(fd, null);
             }
         }
     }

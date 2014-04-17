@@ -49,11 +49,11 @@ abstract class NativeDescriptor {
     }
 
     void preClose() throws IOException {
-        Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd));
+        Native.testAndThrow(Native.dup2(Native.DEAD_FD, fd, this));
     }
 
     void close() throws IOException {
-        Native.testAndThrow(Native.close(fd));
+        Native.testAndThrow(Native.close(fd, this));
     }
 
     protected abstract void handleReadReady();
